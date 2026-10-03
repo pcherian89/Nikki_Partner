@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import type { AppState } from "../../shared/types";
 import type { AppActions } from "../App";
 import { fmtDate } from "../util";
-import { Avatar } from "./Avatar";
+import { NikkiFigure } from "./Avatar";
 
 export const EXAMPLE_DUMP =
   "I have five hours today, except 2–4 when I have a meeting. I need to finish a proposal, review beta feedback, apply for jobs, and explore a business idea.";
@@ -22,8 +22,11 @@ export function Welcome({ state, actions, sendError }: { state: AppState; action
 
   return (
     <div className="welcome">
+      <div className="welcome-figure">
+        <NikkiFigure />
+      </div>
+      <div className="welcome-content">
       <div className="welcome-hero">
-        <Avatar size={168} glow className="float" />
         <p className="eyebrow">{fmtDate(state.today)}</p>
         <h1 className="h1">{greeting}</h1>
         <p className="lead">
@@ -99,6 +102,7 @@ export function Welcome({ state, actions, sendError }: { state: AppState; action
             request so Nikki can plan — it isn't used to train the model.
           </>
         )}
+      </div>
       </div>
     </div>
   );

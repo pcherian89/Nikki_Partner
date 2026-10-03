@@ -404,6 +404,7 @@ input[type="time"] {
 @media (prefers-reduced-motion: reduce) {
   .float,
   .pulse,
+  .nikki-figure img,
   .typing span {
     animation: none !important;
   }
@@ -487,9 +488,62 @@ input[type="time"] {
 
 /* ---------- welcome ---------- */
 .welcome {
-  max-width: 720px;
-  margin: 24px auto 40px;
-  text-align: center;
+  max-width: 1120px;
+  margin: 8px auto 32px;
+  display: grid;
+  grid-template-columns: minmax(260px, 400px) minmax(0, 1fr);
+  gap: 48px;
+  align-items: center;
+}
+.welcome-content {
+  text-align: left;
+}
+.welcome-content .lead {
+  margin: 0;
+}
+.welcome-figure {
+  display: flex;
+  justify-content: center;
+}
+.nikki-figure {
+  position: relative;
+  height: min(78vh, 700px);
+  aspect-ratio: 941 / 1672;
+}
+.nikki-figure::after {
+  content: "";
+  position: absolute;
+  inset: auto 10% -2% 10%;
+  height: 30px;
+  background: radial-gradient(closest-side, rgba(163, 230, 53, 0.18), transparent);
+  filter: blur(6px);
+  z-index: -1;
+}
+.nikki-figure img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  transform-origin: 50% 100%;
+  animation: breathe 6s ease-in-out infinite;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 22%, #000 78%, transparent),
+    linear-gradient(to bottom, transparent, #000 10%, #000 90%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 22%, #000 78%, transparent),
+    linear-gradient(to bottom, transparent, #000 10%, #000 90%, transparent);
+  mask-composite: intersect;
+}
+@keyframes breathe {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  35% {
+    transform: translateY(-3px) rotate(-0.35deg) scale(1.006);
+  }
+  70% {
+    transform: translateY(-1px) rotate(0.3deg) scale(1.003);
+  }
 }
 .welcome-hero {
   margin-bottom: 26px;
@@ -1402,7 +1456,18 @@ details summary {
     flex-direction: column;
   }
   .welcome {
-    margin-top: 8px;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 0;
+  }
+  .nikki-figure {
+    height: 300px;
+  }
+  .welcome-content {
+    text-align: center;
+  }
+  .welcome-content .lead {
+    margin: 0 auto;
   }
   .task-main {
     flex-wrap: wrap;

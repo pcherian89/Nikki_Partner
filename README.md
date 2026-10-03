@@ -185,13 +185,11 @@ The workspace is chosen with the `X-Workspace: personal|demo` header. The browse
 
 ## 6. Nikki's avatar
 
-`public/nikki/nikki-avatar.png` is a **clean circular crop of the original illustration** (`references/nikki-reference.png`). It is **not** a newly generated 3D render, because no image-generation tool was available while building this. The app animates it gently with CSS and falls back to an "N" monogram if the file is missing, so there's never a broken image.
+- `public/nikki/nikki-full.webp`: the full-body 3D-style Nikki you provided. It is shown large on the welcome screen with a gentle CSS "breathing" motion, which is switched off for users who prefer reduced motion. The original is kept in `references/nikki-full-reference.webp`.
+- `public/nikki/nikki-avatar.png`: a round face crop from the same image, used in the header and chat.
+- The first illustration is kept in `references/nikki-reference.png`.
 
-To replace it, generate a new image and save it as a square PNG (512×512 or larger) with the same filename. Suggested prompt for a reference-based image tool, used together with the reference image:
-
-> Soft, stylized 3D-rendered portrait of the woman in the reference image, preserving her identity exactly: adult woman, warm medium complexion, long voluminous curly dark-brown hair, friendly open smile, same facial features and proportions. She wears a light-coloured, contemporary crew-neck top. Head-and-shoulders, centered, looking at the viewer. Dimensional, softly lit hair with visible curl detail; gentle key light from the front-left, soft fill; subtle lime-green (#A3E635) rim light on hair and shoulders. Plain deep charcoal-green background (#0B0F0C to #141B16 gradient), no text, no logos, no circuit patterns, no frame. Pixar-adjacent premium 3D illustration style, natural skin texture, not plastic. Square 1:1, 1024×1024.
-
----
+**To replace either image:** save the new file with the same name, then run `npm run build` again. If an image can't load, the app falls back to the round portrait or an "N" monogram, so it never shows a broken image.
 
 ## 7. Status: what's verified, simulated and untested
 
