@@ -435,7 +435,16 @@ app.use("/api", (_req, res) => res.status(404).json({ error: "Not found." }));
 
 const distDir = path.resolve("dist");
 if (fs.existsSync(path.join(distDir, "index.html"))) {
-  app.use(express.static(distDir, { index: false, maxAge: "1h" }));
+  app.use(
+    express.static(distDir, {
+      index: false,
+      // Hashed build assets never change; everything else (e.g. Nikki's images) is revalidated
+      // on each load so a replaced image shows up immediately.
+      setHeaders: (res, filePath) => {
+        res.setHeader("Cache-Control", filePath.includes(`${path.sep}assets${path.sep}`) ? "public, max-age=31536000, immutable" : "no-cache");
+      },
+    }),
+  );
   app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(path.join(distDir, "index.html")));
 }
 

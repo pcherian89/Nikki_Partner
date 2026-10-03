@@ -5,8 +5,8 @@ import { useState } from "react";
  * replaced with a new file of the same name (square PNG, ideally 512×512).
  * If the image can't load, a styled monogram is shown instead — never a broken image.
  */
-export const AVATAR_SRC = "/nikki/nikki-avatar.png";
-export const FIGURE_SRC = "/nikki/nikki-full.webp";
+export const AVATAR_SRC = "/nikki/nikki-avatar.png?v=2";
+export const FIGURE_SRC = "/nikki/nikki-full.webp?v=2";
 
 export function Avatar({ size = 40, className = "", glow = false }: { size?: number; className?: string; glow?: boolean }) {
   const [failed, setFailed] = useState(false);
