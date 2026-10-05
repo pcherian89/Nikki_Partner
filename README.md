@@ -142,7 +142,7 @@ It does **not** send the whole database. Structured saved facts take precedence 
 ### Assistant instructions and response schema
 
 - System instructions: [`server/prompt.ts`](server/prompt.ts) (`SYSTEM_PROMPT`). The per-request context block is built by `buildAppState`.
-- Response schema: [`server/schema.ts`](server/schema.ts). It is sent to the API as structured output (`output_config.format`) and re-validated on the server with Zod. Every reply contains:
+- Response schema: [`server/schema.ts`](server/schema.ts). It is sent to the API as structured output (`output_config.format`) and re-validated on the server with Zod. The schema is kept small, using `""` and `0` instead of nulls, because the API rejects overly complex schemas. If the API ever rejects the schema anyway, the server switches once to asking for JSON in the instructions, and still validates every reply. Every reply contains:
   - `message`
   - `questions` (≤ 2)
   - `captured_items` (actions / ideas / reference)

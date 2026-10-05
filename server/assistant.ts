@@ -199,8 +199,12 @@ export function resolveResponse(
 
 function parseModelJson(text: string): { ok: true; value: ModelResponse } | { ok: false; errors: string[] } {
   let json: unknown;
+  // Tolerate code fences or stray text around the object (non-structured fallback mode).
+  const first = text.indexOf("{");
+  const last = text.lastIndexOf("}");
+  const candidate = first >= 0 && last > first ? text.slice(first, last + 1) : text;
   try {
-    json = JSON.parse(text);
+    json = JSON.parse(candidate);
   } catch {
     return { ok: false, errors: ["Response was not valid JSON."] };
   }
