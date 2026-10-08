@@ -177,6 +177,9 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
 }
 
 function Message({ m, state }: { m: ChatMessage; state: AppState }) {
+  if (m.meta.system) {
+    return <div className="system-note">{m.text}</div>;
+  }
   if (m.role === "user") {
     return (
       <div className="msg user">

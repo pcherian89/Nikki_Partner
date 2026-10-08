@@ -19,6 +19,50 @@ export interface Task {
   updatedAt: string;
   completedAt: string | null;
   source: "user" | "nikki" | "demo";
+  /** Minutes the task really took (from the timer or entered by the user). */
+  actualMinutes: number | null;
+  /** Minutes tracked by the focus timer so far. */
+  spentMinutes: number;
+  /** Set while the focus timer is running. */
+  timerStartedAt: string | null;
+  steps: TaskStep[];
+}
+
+export interface TaskStep {
+  id: string;
+  title: string;
+  minutes: number | null;
+  done: boolean;
+}
+
+export interface TaskDraft {
+  id: string;
+  taskId: string;
+  format: string;
+  title: string;
+  content: string;
+  nextStep: string;
+  createdAt: string;
+  demo: boolean;
+}
+
+export interface WrapUp {
+  id: string;
+  date: string;
+  createdAt: string;
+  doneTaskIds: string[];
+  doneTitles: string[];
+  tomorrowTaskIds: string[];
+  note: string;
+}
+
+export interface EstimationInsight {
+  /** Number of completed tasks with both an estimate and a real duration. */
+  samples: number;
+  /** Typical actual ÷ estimate (median). 1.0 = estimates are accurate. */
+  factor: number | null;
+  byProject: { project: string; factor: number; samples: number }[];
+  recent: { title: string; estimate: number; actual: number }[];
 }
 
 export interface Profile {
@@ -137,7 +181,8 @@ export interface ChatMessage {
     exampleAnswer?: string;
     demoPhase?: string;
     demoInfo?: unknown;
-    kind?: "chat" | "replan" | "review";
+    kind?: "chat" | "replan" | "review" | "wrapup";
+    system?: boolean;
   };
 }
 
@@ -160,6 +205,12 @@ export interface AppState {
   newDay: { lastPlanDate: string; unfinishedTaskIds: string[] } | null;
   messages: ChatMessage[];
   hasAnyData: boolean;
+  drafts: TaskDraft[];
+  /** Today's evening wrap-up, if done. */
+  wrapUpToday: WrapUp | null;
+  /** The most recent wrap-up from an earlier day (used for the morning check-in). */
+  lastWrapUp: WrapUp | null;
+  learning: EstimationInsight;
 }
 
 export interface ApiError {

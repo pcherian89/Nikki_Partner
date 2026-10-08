@@ -27,7 +27,13 @@ import {
   updateMeeting,
   updateTask,
   wipe,
+  TABLES,
+  setTimer,
+  replaceSteps,
+  setStepDone,
+  deleteDraft,
 } from "./db.js";
+import { breakDown, helpMeStart } from "./helpers.js";
 import { getProvider } from "./provider/index.js";
 import { ProviderError } from "./provider/types.js";
 import {
@@ -38,6 +44,7 @@ import {
   editPlan,
   resolveTimezone,
   reviewNewDay,
+  wrapUpDay,
 } from "./planOps.js";
 import { isValidDate, isValidTime, isValidTimeZone, localNow } from "./time.js";
 import { validateMeeting, validatePlanDraft } from "./validate.js";
@@ -143,7 +150,7 @@ app.get("/api/state", h((req, res) => res.json({ state: state(req, ctx(req)) }))
 const MessageBody = z.object({
   text: z.string().trim().min(1).max(8000),
   clientRequestId: z.string().min(8).max(100),
-  kind: z.enum(["chat", "review"]).default("chat"),
+  kind: z.enum(["chat", "review", "wrapup"]).default("chat"),
 });
 
 const ReplanBody = z.object({
@@ -255,6 +262,7 @@ const TaskFields = z.object({
   estimateMinutes: z.number().int().positive().max(24 * 60).nullable(),
   deadline: z.string().refine(isValidDate, "Use YYYY-MM-DD").nullable(),
   project: z.string().max(200).nullable(),
+  actualMinutes: z.number().int().positive().max(24 * 60).nullable(),
 });
 
 app.post(
@@ -301,6 +309,97 @@ app.delete(
         { expectedVersion: version, proposalId: null, source: "user-edit" },
       );
     }
+    res.json({ state: state(req, c) });
+  }),
+);
+
+// ---------- focus timer, steps, drafts, wrap-up ----------
+
+app.post(
+  "/api/tasks/:id/timer",
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(z.object({ action: z.enum(["start", "stop"]) }), req.body);
+    if (!setTimer(c.db, String(req.params.id), body.action)) throw new UserFacingError("Task not found.", 404, "not_found");
+    res.json({ state: state(req, c) });
+  }),
+);
+
+app.post(
+  "/api/tasks/:id/breakdown",
+  h(async (req, res) => {
+    const c = ctx(req);
+    const result = await breakDown(c.db, c.ws, String(req.params.id));
+    res.json(result);
+  }),
+);
+
+app.put(
+  "/api/tasks/:id/steps",
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(
+      z.object({
+        steps: z
+          .array(
+            z.object({
+              id: z.string().optional(),
+              title: z.string().trim().min(1).max(200),
+              minutes: z.number().int().min(1).max(480).nullable(),
+              done: z.boolean().optional(),
+            }),
+          )
+          .max(20),
+      }),
+      req.body,
+    );
+    if (!getTask(c.db, String(req.params.id))) throw new UserFacingError("Task not found.", 404, "not_found");
+    replaceSteps(c.db, String(req.params.id), body.steps);
+    res.json({ state: state(req, c) });
+  }),
+);
+
+app.patch(
+  "/api/steps/:id",
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(z.object({ done: z.boolean() }), req.body);
+    if (!setStepDone(c.db, String(req.params.id), body.done)) throw new UserFacingError("Step not found.", 404, "not_found");
+    res.json({ state: state(req, c) });
+  }),
+);
+
+app.post(
+  "/api/tasks/:id/assist",
+  h(async (req, res) => {
+    const c = ctx(req);
+    const body = parse(z.object({ ask: z.string().max(1000).default("") }), req.body ?? {});
+    const draft = await helpMeStart(c.db, c.ws, String(req.params.id), body.ask);
+    res.json({ state: state(req, c), draft });
+  }),
+);
+
+app.delete(
+  "/api/drafts/:id",
+  h((req, res) => {
+    const c = ctx(req);
+    deleteDraft(c.db, String(req.params.id));
+    res.json({ state: state(req, c) });
+  }),
+);
+
+app.post(
+  "/api/wrapup",
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(
+      z.object({
+        decisions: z.array(z.object({ taskId: z.string(), action: z.enum(["tomorrow", "done", "park", "drop"]) })).max(100),
+        note: z.string().max(4000).default(""),
+      }),
+      req.body,
+    );
+    wrapUpDay(c.db, body, c.tz);
     res.json({ state: state(req, c) });
   }),
 );
@@ -398,7 +497,7 @@ app.get(
       workspace: c.ws,
       note: "Everything Nikki Partner has stored for this workspace. This data lives in the app's own database; it is sent to the model only as context for a request and is not used for model training.",
     };
-    for (const t of ["profile", "tasks", "messages", "meetings", "proposals", "plans", "plan_blocks", "settings"]) {
+    for (const t of TABLES.filter((x) => x !== "requests")) {
       dump[t] = (c.db.prepare(`SELECT * FROM ${t}`).all() as Record<string, unknown>[]).map((r) => {
         for (const k of ["data", "meta"]) if (typeof r[k] === "string") r[k] = JSON.parse(r[k] as string);
         return r;

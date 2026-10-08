@@ -1,8 +1,9 @@
-import type { ChatMessage, Meeting, Plan, Profile, Task } from "../shared/types.js";
+import type { EstimationInsight, ChatMessage, Meeting, Plan, Profile, Task } from "../shared/types.js";
 import type { ModelResponse } from "./schema.js";
 import { scheduleBlocks, ScheduleItem } from "./scheduler.js";
 import { fromMinutes, isValidTime, roundUpTo, toMinutes } from "./time.js";
 import { freeMinutes } from "./validate.js";
+import { adjustEstimate } from "./learning.js";
 
 /**
  * Demo mode: a deterministic, rule-based stand-in for the model. It is NOT an
@@ -17,7 +18,7 @@ export const EXAMPLE_DUMP =
 
 export interface DemoInput {
   text: string;
-  kind: "chat" | "replan" | "review";
+  kind: "chat" | "replan" | "review" | "wrapup";
   remainingUntil?: string | null;
   profile: Profile;
   tasks: Task[];
@@ -25,6 +26,7 @@ export interface DemoInput {
   plan: Plan | null;
   now: string;
   lastAssistant: ChatMessage | null;
+  learning?: EstimationInsight;
 }
 
 export interface DemoInfo {
@@ -156,8 +158,22 @@ const empty = (): ModelResponse => ({
 const fmtHours = (h: number) => `${WORDS_REV[h] ?? h} hour${h === 1 ? "" : "s"}`;
 const WORDS_REV: Record<number, string> = Object.fromEntries(Object.entries(WORDS).map(([k, v]) => [v, k]));
 
+const learned = (input: DemoInput, minutes: number, project?: string | null) =>
+  input.learning ? adjustEstimate(minutes, input.learning, project) : minutes;
+
 export function demoRespond(input: DemoInput): DemoResult {
   if (input.kind === "replan") return demoReplan(input);
+  if (input.kind === "wrapup") {
+    const res = empty();
+    const doneMatch = input.text.match(/Done today: ([^\n]+)/);
+    const tomorrowMatch = input.text.match(/Moving to tomorrow: ([^\n]+)/);
+    res.message = [
+      doneMatch ? `Nice work today — you finished ${doneMatch[1]}.` : "Thanks for wrapping up. Even a slow day counts.",
+      tomorrowMatch ? `${tomorrowMatch[1]} will be waiting for you tomorrow, and I'll bring it up in your morning check-in.` : "Nothing is carrying over, so tomorrow starts fresh.",
+      "Tomorrow, start by telling me how much time you have.",
+    ].join(" ");
+    return { response: res, meta: { demoPhase: "idle" } };
+  }
 
   const text = input.text.trim();
   const last = input.lastAssistant;
@@ -303,10 +319,10 @@ function proposeFromInfo(
   type Cand = { ref: string; title: string; minutes: number };
   const existingActions: Cand[] = input.tasks
     .filter((t) => t.type === "action" && t.status === "open")
-    .map((t) => ({ ref: t.id, title: t.title, minutes: t.estimateMinutes ?? estimateFor(t.title) }));
+    .map((t) => ({ ref: t.id, title: t.title, minutes: learned(input, t.estimateMinutes ?? estimateFor(t.title), t.project) }));
   const newActions: Cand[] = newItems
     .filter((c) => c.kind === "action")
-    .map((c) => ({ ref: c.ref, title: c.title, minutes: c.estimate_minutes ?? estimateFor(c.title) }));
+    .map((c) => ({ ref: c.ref, title: c.title, minutes: learned(input, c.estimate_minutes ?? estimateFor(c.title), c.project) }));
   const cands = [...existingActions, ...newActions];
   if (!cands.length) {
     res.message = "I don't see any actions to plan yet. Tell me what you need to get done today.";
@@ -401,7 +417,7 @@ function demoReplan(input: DemoInput): DemoResult {
     return {
       ref: t.id,
       title: t.title,
-      minutes: Math.max(30, (t.estimateMinutes ?? estimateFor(t.title)) - doneBefore),
+      minutes: Math.max(30, learned(input, t.estimateMinutes ?? estimateFor(t.title), t.project) - doneBefore),
       kind: i === 0 ? "focus" : "task",
     };
   });

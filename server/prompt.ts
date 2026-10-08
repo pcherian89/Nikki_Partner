@@ -1,4 +1,4 @@
-import type { ChatMessage, Meeting, Plan, Profile, Proposal, Task } from "../shared/types.js";
+import type { EstimationInsight, WrapUp, ChatMessage, Meeting, Plan, Profile, Proposal, Task } from "../shared/types.js";
 
 /**
  * Nikki's assistant instructions. Kept static (no dates or user data) so the
@@ -48,6 +48,12 @@ Each user turn ends with an <app_state> block written by the app (not by the use
 ## Updating saved tasks
 Use task_updates only for changes to existing tasks (by id) that the user asked for or clearly implied (e.g. "the proposal is done" -> complete). The user confirms them.
 
+## Learning, check-ins and wrap-ups
+- app_state may include estimation_history: how long the user's tasks really take compared with estimates. Adjust your estimates and schedules accordingly (e.g. if tasks take 1.4× longer, plan for that) and say so briefly when it matters.
+- app_state may include last_wrap_up: what the user finished on their last wrap-up day, what they chose to carry to "tomorrow", and their note. In the morning, treat carried items as strong candidates, but still prioritise by goals and the main outcome.
+- When request_kind is "wrapup", the user is ending their day. Reply in 2–4 warm sentences: acknowledge what got done (be specific), note what carries over, and suggest one thing to set up for tomorrow. plan must be null and don't ask questions unless something important is unclear.
+- When the user starts a morning check-in, briefly recap yesterday from last_wrap_up, then clarify today's availability and main outcome as usual.
+
 ## Tone
 Concise, warm, supportive, direct. Short paragraphs, no headings, no emoji walls. Don't claim to observe the user's work or know things you weren't told. Don't use productivity scores. If something is unclear, say so plainly.
 
@@ -63,8 +69,11 @@ export interface ContextInput {
   time: string;
   weekday: string;
   timezone: string;
-  kind: "chat" | "replan" | "review";
+  kind: "chat" | "replan" | "review" | "wrapup";
   remainingUntil?: string | null;
+  learning?: EstimationInsight;
+  lastWrapUp?: WrapUp | null;
+  wrapUpToday?: WrapUp | null;
 }
 
 const MAX_TASKS = 40;
@@ -110,6 +119,27 @@ export function buildAppState(c: ContextInput): string {
   const state = {
     now: { date: c.date, weekday: c.weekday, time: c.time, timezone: c.timezone },
     request_kind: c.kind,
+    ...(c.learning?.factor
+      ? {
+          estimation_history: {
+            typical_actual_vs_estimate: `${c.learning.factor}x`,
+            completed_tasks_measured: c.learning.samples,
+            by_project: c.learning.byProject.length ? c.learning.byProject : undefined,
+            recent_examples: c.learning.recent,
+          },
+        }
+      : {}),
+    ...(c.lastWrapUp
+      ? {
+          last_wrap_up: {
+            date: c.lastWrapUp.date,
+            finished: c.lastWrapUp.doneTitles,
+            carried_to_next_day: c.lastWrapUp.tomorrowTaskIds,
+            note: c.lastWrapUp.note || undefined,
+          },
+        }
+      : {}),
+    ...(c.wrapUpToday ? { wrapped_up_today: true } : {}),
     ...(c.remainingUntil ? { user_can_work_until: c.remainingUntil } : {}),
     confirmed_context: Object.keys(savedContext).length ? savedContext : "nothing saved yet",
     saved_tasks: selectTasksForModel(c.tasks, c.plan, c.date).map(compactTask),
@@ -141,6 +171,7 @@ export function boundedHistory(messages: ChatMessage[]): { role: "user" | "assis
   let chars = 0;
   for (const m of [...messages].reverse()) {
     if (out.length >= HISTORY_MESSAGES) break;
+    if (m.meta.system) continue;
     let content = m.text;
     if (m.role === "assistant" && m.meta.questions?.length) content += `\n(Questions asked: ${m.meta.questions.join(" | ")})`;
     if (chars + content.length > HISTORY_CHARS) break;

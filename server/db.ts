@@ -4,6 +4,9 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import type {
+  TaskDraft,
+  TaskStep,
+  WrapUp,
   ChatMessage,
   Meeting,
   Plan,
@@ -87,6 +90,31 @@ CREATE TABLE IF NOT EXISTS plan_blocks (
   title TEXT NOT NULL,
   PRIMARY KEY (plan_id, id)
 );
+CREATE TABLE IF NOT EXISTS task_steps (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  minutes INTEGER,
+  done INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS task_drafts (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  format TEXT NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  next_step TEXT NOT NULL,
+  demo INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS journal (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -114,14 +142,38 @@ export function getDb(ws: Workspace): DB {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+  migrate(db);
   dbs.set(ws, db);
   return db;
 }
 
+/** Adds columns introduced after the first release to existing databases. */
+function migrate(db: DB) {
+  const cols = new Set((db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has("actual_minutes")) db.exec("ALTER TABLE tasks ADD COLUMN actual_minutes INTEGER");
+  if (!cols.has("spent_minutes")) db.exec("ALTER TABLE tasks ADD COLUMN spent_minutes INTEGER NOT NULL DEFAULT 0");
+  if (!cols.has("timer_started_at")) db.exec("ALTER TABLE tasks ADD COLUMN timer_started_at TEXT");
+}
+
+export const TABLES = [
+  "profile",
+  "tasks",
+  "task_steps",
+  "task_drafts",
+  "journal",
+  "messages",
+  "meetings",
+  "proposals",
+  "plans",
+  "plan_blocks",
+  "requests",
+  "settings",
+];
+
 /** Wipes every table in a workspace (used for Reset demo / Delete my data). */
 export function wipe(db: DB) {
   db.transaction(() => {
-    for (const t of ["profile", "tasks", "messages", "meetings", "proposals", "plans", "plan_blocks", "requests", "settings"]) {
+    for (const t of TABLES) {
       db.prepare(`DELETE FROM ${t}`).run();
     }
   })();
@@ -179,9 +231,12 @@ interface TaskRow {
   updated_at: string;
   completed_at: string | null;
   source: Task["source"];
+  actual_minutes: number | null;
+  spent_minutes: number;
+  timer_started_at: string | null;
 }
 
-const rowToTask = (r: TaskRow): Task => ({
+const rowToTask = (r: TaskRow, steps: TaskStep[] = []): Task => ({
   id: r.id,
   title: r.title,
   notes: r.notes,
@@ -194,17 +249,124 @@ const rowToTask = (r: TaskRow): Task => ({
   updatedAt: r.updated_at,
   completedAt: r.completed_at,
   source: r.source,
+  actualMinutes: r.actual_minutes,
+  spentMinutes: r.spent_minutes ?? 0,
+  timerStartedAt: r.timer_started_at,
+  steps,
 });
 
+interface StepRow {
+  id: string;
+  task_id: string;
+  title: string;
+  minutes: number | null;
+  done: number;
+}
+const rowToStep = (r: StepRow): TaskStep => ({ id: r.id, title: r.title, minutes: r.minutes, done: !!r.done });
+
 export function listTasks(db: DB): Task[] {
-  return (db.prepare("SELECT * FROM tasks WHERE deleted = 0 ORDER BY created_at, rowid").all() as TaskRow[]).map(
-    rowToTask,
+  const steps = new Map<string, TaskStep[]>();
+  for (const r of db.prepare("SELECT * FROM task_steps ORDER BY task_id, position").all() as StepRow[]) {
+    if (!steps.has(r.task_id)) steps.set(r.task_id, []);
+    steps.get(r.task_id)!.push(rowToStep(r));
+  }
+  return (db.prepare("SELECT * FROM tasks WHERE deleted = 0 ORDER BY created_at, rowid").all() as TaskRow[]).map((r) =>
+    rowToTask(r, steps.get(r.id) ?? []),
   );
 }
 
 export function getTask(db: DB, id: string): Task | null {
   const r = db.prepare("SELECT * FROM tasks WHERE id = ? AND deleted = 0").get(id) as TaskRow | undefined;
-  return r ? rowToTask(r) : null;
+  if (!r) return null;
+  const steps = (db.prepare("SELECT * FROM task_steps WHERE task_id = ? ORDER BY position").all(id) as StepRow[]).map(rowToStep);
+  return rowToTask(r, steps);
+}
+
+/** Replaces a task's steps, keeping the done state of steps whose id is kept. */
+export function replaceSteps(db: DB, taskId: string, steps: { id?: string; title: string; minutes: number | null; done?: boolean }[]) {
+  db.transaction(() => {
+    const old = new Map(
+      (db.prepare("SELECT * FROM task_steps WHERE task_id = ?").all(taskId) as StepRow[]).map((r) => [r.id, r]),
+    );
+    db.prepare("DELETE FROM task_steps WHERE task_id = ?").run(taskId);
+    const ins = db.prepare("INSERT INTO task_steps (id, task_id, position, title, minutes, done) VALUES (?, ?, ?, ?, ?, ?)");
+    steps.forEach((st, i) => {
+      const prev = st.id ? old.get(st.id) : undefined;
+      ins.run(prev ? prev.id : newId("s"), taskId, i, st.title.trim(), st.minutes, (st.done ?? !!prev?.done) ? 1 : 0);
+    });
+  })();
+}
+
+export function setStepDone(db: DB, stepId: string, done: boolean) {
+  return db.prepare("UPDATE task_steps SET done = ? WHERE id = ?").run(done ? 1 : 0, stepId).changes > 0;
+}
+
+// ---------- drafts ("Help me start") ----------
+
+export function addDraft(db: DB, d: Omit<TaskDraft, "id" | "createdAt">): TaskDraft {
+  const draft: TaskDraft = { ...d, id: newId("d"), createdAt: nowIso() };
+  db.prepare(
+    "INSERT INTO task_drafts (id, task_id, format, title, content, next_step, demo, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(draft.id, draft.taskId, draft.format, draft.title, draft.content, draft.nextStep, draft.demo ? 1 : 0, draft.createdAt);
+  return draft;
+}
+
+export function listDrafts(db: DB, limit = 40): TaskDraft[] {
+  return (
+    db.prepare("SELECT * FROM task_drafts ORDER BY created_at DESC, rowid DESC LIMIT ?").all(limit) as {
+      id: string;
+      task_id: string;
+      format: string;
+      title: string;
+      content: string;
+      next_step: string;
+      demo: number;
+      created_at: string;
+    }[]
+  ).map((r) => ({
+    id: r.id,
+    taskId: r.task_id,
+    format: r.format,
+    title: r.title,
+    content: r.content,
+    nextStep: r.next_step,
+    demo: !!r.demo,
+    createdAt: r.created_at,
+  }));
+}
+
+export function deleteDraft(db: DB, id: string) {
+  return db.prepare("DELETE FROM task_drafts WHERE id = ?").run(id).changes > 0;
+}
+
+// ---------- journal (evening wrap-ups) ----------
+
+export function saveWrapUp(db: DB, w: Omit<WrapUp, "id" | "createdAt">): WrapUp {
+  const entry: WrapUp = { ...w, id: newId("w"), createdAt: nowIso() };
+  db.transaction(() => {
+    db.prepare("DELETE FROM journal WHERE date = ? AND kind = 'wrapup'").run(w.date);
+    const { id, date, createdAt, ...data } = entry;
+    db.prepare("INSERT INTO journal (id, date, kind, data, created_at) VALUES (?, ?, 'wrapup', ?, ?)").run(id, date, JSON.stringify(data), createdAt);
+  })();
+  return entry;
+}
+
+function rowToWrapUp(r: { id: string; date: string; data: string; created_at: string }): WrapUp {
+  return { id: r.id, date: r.date, createdAt: r.created_at, ...JSON.parse(r.data) };
+}
+
+export function wrapUpFor(db: DB, date: string): WrapUp | null {
+  const r = db.prepare("SELECT * FROM journal WHERE date = ? AND kind = 'wrapup'").get(date) as
+    | { id: string; date: string; data: string; created_at: string }
+    | undefined;
+  return r ? rowToWrapUp(r) : null;
+}
+
+export function lastWrapUpBefore(db: DB, date: string): WrapUp | null {
+  const r = db.prepare("SELECT * FROM journal WHERE date < ? AND kind = 'wrapup' ORDER BY date DESC LIMIT 1").get(date) as
+    | { id: string; date: string; data: string; created_at: string }
+    | undefined;
+  return r ? rowToWrapUp(r) : null;
 }
 
 export function createTask(
@@ -225,6 +387,10 @@ export function createTask(
     updatedAt: ts,
     completedAt: t.status === "done" ? ts : null,
     source: t.source ?? "user",
+    actualMinutes: t.actualMinutes ?? null,
+    spentMinutes: 0,
+    timerStartedAt: null,
+    steps: [],
   };
   if (t.createdAt) task.createdAt = task.updatedAt = t.createdAt;
   db.prepare(
@@ -237,15 +403,41 @@ export function createTask(
 export function updateTask(db: DB, id: string, patch: Partial<Task>): Task | null {
   const cur = getTask(db, id);
   if (!cur) return null;
-  const next: Task = { ...cur, ...patch, id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso() };
+  const next: Task = { ...cur, ...patch, id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso(), steps: cur.steps };
   if (patch.status && patch.status !== cur.status) {
     next.completedAt = patch.status === "done" ? nowIso() : null;
   }
+  // Finishing (or blocking) a task stops its focus timer and records the time spent.
+  if (cur.timerStartedAt && patch.status && patch.status !== "open") {
+    next.spentMinutes = cur.spentMinutes + elapsedMinutes(cur.timerStartedAt);
+    next.timerStartedAt = null;
+  }
+  if (patch.status === "done" && next.actualMinutes == null && next.spentMinutes > 0) {
+    next.actualMinutes = next.spentMinutes;
+  }
   db.prepare(
     `UPDATE tasks SET title=@title, notes=@notes, type=@type, status=@status, estimate_minutes=@estimateMinutes,
-     deadline=@deadline, project=@project, updated_at=@updatedAt, completed_at=@completedAt WHERE id=@id`,
-  ).run(next);
+     deadline=@deadline, project=@project, updated_at=@updatedAt, completed_at=@completedAt,
+     actual_minutes=@actualMinutes, spent_minutes=@spentMinutes, timer_started_at=@timerStartedAt WHERE id=@id`,
+  ).run({ ...next, steps: undefined });
   return next;
+}
+
+export const elapsedMinutes = (startIso: string) => Math.max(0, Math.round((Date.now() - new Date(startIso).getTime()) / 60000));
+
+/** Starts or pauses a task's focus timer. Only one timer runs at a time. */
+export function setTimer(db: DB, id: string, action: "start" | "stop"): Task | null {
+  return db.transaction(() => {
+    const cur = getTask(db, id);
+    if (!cur) return null;
+    if (action === "start") {
+      for (const t of listTasks(db).filter((x) => x.timerStartedAt && x.id !== id)) setTimer(db, t.id, "stop");
+      if (cur.timerStartedAt) return cur;
+      return updateTask(db, id, { timerStartedAt: nowIso() });
+    }
+    if (!cur.timerStartedAt) return cur;
+    return updateTask(db, id, { timerStartedAt: null, spentMinutes: cur.spentMinutes + elapsedMinutes(cur.timerStartedAt) });
+  })();
 }
 
 export function deleteTask(db: DB, id: string) {

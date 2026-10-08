@@ -72,3 +72,8 @@ export function addDays(date: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
+/** The local calendar date (YYYY-MM-DD) of an ISO timestamp in a timezone. */
+export function localDateOf(iso: string, tz: string): string {
+  return localNow(tz, new Date(iso)).date;
+}

@@ -125,6 +125,44 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
       </form>
 
       <div className="card">
+        <h2 className="h3">What Nikki has learned about your pace</h2>
+        {state.learning.factor ? (
+          <>
+            <p className="small">
+              Your tasks usually take about <strong>{state.learning.factor}×</strong> their estimate (based on {state.learning.samples}{" "}
+              completed tasks). Nikki uses this when building your schedule.
+            </p>
+            {state.learning.byProject.length > 0 && (
+              <ul className="plain-list compact small">
+                {state.learning.byProject.map((p) => (
+                  <li key={p.project}>
+                    {p.project}: about {p.factor}× ({p.samples} tasks)
+                  </li>
+                ))}
+              </ul>
+            )}
+            {state.learning.recent.length > 0 && (
+              <details className="small">
+                <summary>Recent examples</summary>
+                <ul className="plain-list compact">
+                  {state.learning.recent.map((r, i) => (
+                    <li key={i}>
+                      {r.title}: estimated {r.estimate} min, took {r.actual} min
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </>
+        ) : (
+          <p className="muted small">
+            Not enough data yet ({state.learning.samples} of 3 tasks measured). Use the focus timer on a task, or tell Nikki how long a
+            finished task really took in “Completed today”. After 3 tasks she starts adjusting your plans.
+          </p>
+        )}
+      </div>
+
+      <div className="card">
         <h2 className="h3">Mode</h2>
         <div className="mode-options">
           <button className={`mode-option ${!demo ? "active" : ""}`} onClick={() => actions.switchWorkspace("personal")}>

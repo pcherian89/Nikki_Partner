@@ -26,7 +26,10 @@ import {
   recentMessages,
   saveProposal,
   supersedePending,
+  lastWrapUpBefore,
+  wrapUpFor,
 } from "./db.js";
+import { estimationInsight } from "./learning.js";
 import { demoRespond } from "./demo.js";
 import { buildAppState, boundedHistory, SYSTEM_PROMPT } from "./prompt.js";
 import { getProvider } from "./provider/index.js";
@@ -45,7 +48,7 @@ export interface TurnInput {
   ws: Workspace;
   db: DB;
   text: string;
-  kind: "chat" | "replan" | "review";
+  kind: "chat" | "replan" | "review" | "wrapup";
   timezone: string;
   remainingUntil?: string | null;
 }
@@ -106,6 +109,10 @@ export function resolveResponse(
       updatedAt: ts,
       completedAt: null,
       source: ctx.source,
+      actualMinutes: null,
+      spentMinutes: 0,
+      timerStartedAt: null,
+      steps: [],
     };
     newTasks.push(t);
     refMap.set(c.ref, t.id);
@@ -148,7 +155,7 @@ export function resolveResponse(
 
   let draft: PlanDraft | null = null;
   let planErrors: string[] = [];
-  if (resp.plan) {
+  if (resp.plan && ctx.kind !== "wrapup") {
     const p = resp.plan;
     const resolve = (ref: string | null) => (ref ? (refMap.get(ref) ?? ref) : null);
     const allMeetings = [...ctx.meetings, ...newMeetings];
@@ -251,7 +258,7 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
     let demoMeta: Record<string, unknown> = {};
 
     if (!provider) {
-      const lastAssistant = [...history].reverse().find((m) => m.role === "assistant") ?? null;
+      const lastAssistant = [...history].reverse().find((m) => m.role === "assistant" && !m.meta.system) ?? null;
       const demo = demoRespond({
         text: input.text,
         kind: input.kind,
@@ -262,6 +269,7 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
         plan,
         now: now.time,
         lastAssistant,
+        learning: estimationInsight(tasks),
       });
       resp = demo.response;
       demoMeta = { demo: true, ...demo.meta };
@@ -283,6 +291,9 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
         timezone: input.timezone,
         kind: input.kind,
         remainingUntil: input.remainingUntil,
+        learning: estimationInsight(tasks),
+        lastWrapUp: lastWrapUpBefore(db, now.date),
+        wrapUpToday: wrapUpFor(db, now.date),
       });
       const messages: ProviderMessage[] = boundedHistory(history);
       const last = messages[messages.length - 1];

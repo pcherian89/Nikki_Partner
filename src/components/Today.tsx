@@ -3,6 +3,8 @@ import type { AppState, Plan, PlanBlock, Task } from "../../shared/types";
 import { api, ApiError } from "../api";
 import type { AppActions } from "../App";
 import { ProposalCard } from "./ProposalCard";
+import { ActualTime, doneTodayTasks, MorningCheckIn, WrappedUpNote, WrapUpPanel } from "./DayRhythm";
+import { StepList, TaskToolButtons } from "./TaskTools";
 import { capacity, draftOf, fmtDate, fmtDuration, fmtRange, fmtTime, fromMin, taskById, toMin } from "../util";
 
 type Mode = "schedule" | "checklist";
@@ -39,6 +41,9 @@ export function useCompletion(state: AppState, actions: AppActions) {
 export function Today({ state, actions, busy }: { state: AppState; actions: AppActions; busy: boolean }) {
   const [mode, setMode] = useState<Mode>("schedule");
   const [replanOpen, setReplanOpen] = useState(false);
+  const [wrapOpen, setWrapOpen] = useState(false);
+  const canWrap = !!state.plan || doneTodayTasks(state).length > 0;
+  const showCheckIn = !state.newDay && !state.plan && !state.proposal?.plan && !!state.lastWrapUp && !state.wrapUpToday;
   const tasks = useMemo(() => taskById(state.tasks), [state.tasks]);
   const complete = useCompletion(state, actions);
   const plan = state.plan;
@@ -53,14 +58,24 @@ export function Today({ state, actions, busy }: { state: AppState; actions: AppA
           <h2 className="h2">{plan?.mainOutcome || "Today"}</h2>
           {plan && <div className="muted small">Main outcome · plan v{plan.version}{plan.source === "user-edit" ? " (edited by you)" : ""}</div>}
         </div>
-        {plan && (
-          <button className="btn" onClick={() => setReplanOpen((o) => !o)} disabled={busy}>
-            ↻ Update my plan
-          </button>
-        )}
+        <div className="row gap wrap head-actions">
+          {plan && (
+            <button className="btn" onClick={() => { setReplanOpen((o) => !o); setWrapOpen(false); }} disabled={busy}>
+              ↻ Update my plan
+            </button>
+          )}
+          {canWrap && !state.wrapUpToday && (
+            <button className="btn ghost" onClick={() => { setWrapOpen((o) => !o); setReplanOpen(false); }} disabled={busy}>
+              Wrap up my day
+            </button>
+          )}
+        </div>
       </div>
 
       {state.newDay && <NewDayReview state={state} actions={actions} />}
+      {showCheckIn && <MorningCheckIn state={state} actions={actions} />}
+      {wrapOpen && <WrapUpPanel state={state} actions={actions} onClose={() => setWrapOpen(false)} busy={busy} />}
+      {state.wrapUpToday && !wrapOpen && <WrappedUpNote state={state} onEdit={() => setWrapOpen(true)} />}
 
       {busy && (
         <div className="card working" role="status">
@@ -78,10 +93,10 @@ export function Today({ state, actions, busy }: { state: AppState; actions: AppA
       {replanOpen && plan && <ReplanForm plan={plan} state={state} actions={actions} onClose={() => setReplanOpen(false)} busy={busy} />}
 
       {!plan ? (
-        <NoPlan state={state} actions={actions} />
+        showCheckIn ? null : <NoPlan state={state} actions={actions} />
       ) : (
         <>
-          <NextUp plan={plan} state={state} tasks={tasks} onToggle={complete} />
+          <NextUp plan={plan} state={state} tasks={tasks} onToggle={complete} actions={actions} />
           <div className="row between center-y section-gap">
             <div className="segmented" role="tablist" aria-label="Plan view">
               <button className={mode === "schedule" ? "active" : ""} onClick={() => setMode("schedule")} role="tab" aria-selected={mode === "schedule"}>
@@ -95,7 +110,7 @@ export function Today({ state, actions, busy }: { state: AppState; actions: AppA
           {mode === "schedule" ? (
             <Schedule plan={plan} state={state} tasks={tasks} actions={actions} onToggle={complete} />
           ) : (
-            <Checklist plan={plan} tasks={tasks} onToggle={complete} />
+            <Checklist plan={plan} tasks={tasks} onToggle={complete} actions={actions} />
           )}
           <Capacity plan={plan} />
           {plan.deferred.length > 0 && (
@@ -115,7 +130,7 @@ export function Today({ state, actions, busy }: { state: AppState; actions: AppA
       )}
 
       <Meetings state={state} actions={actions} />
-      <Completed state={state} plan={plan} onToggle={complete} />
+      <Completed state={state} plan={plan} onToggle={complete} actions={actions} />
     </div>
   );
 }
@@ -138,7 +153,19 @@ function NoPlan({ state, actions }: { state: AppState; actions: AppActions }) {
   );
 }
 
-function NextUp({ plan, state, tasks, onToggle }: { plan: Plan; state: AppState; tasks: Map<string, Task>; onToggle: (t: Task, d: boolean) => void }) {
+function NextUp({
+  plan,
+  state,
+  tasks,
+  onToggle,
+  actions,
+}: {
+  plan: Plan;
+  state: AppState;
+  tasks: Map<string, Task>;
+  onToggle: (t: Task, d: boolean) => void;
+  actions: AppActions;
+}) {
   const now = toMin(state.now);
   const next = plan.blocks.find((b) => (b.kind === "focus" || b.kind === "task") && toMin(b.end) > now && b.taskId && tasks.get(b.taskId)?.status !== "done");
   const allDone = plan.blocks.filter((b) => b.taskId).every((b) => tasks.get(b.taskId!)?.status === "done");
@@ -176,6 +203,8 @@ function NextUp({ plan, state, tasks, onToggle }: { plan: Plan; state: AppState;
           </span>
         </span>
       </label>
+      <StepList task={task} actions={actions} />
+      <TaskToolButtons task={task} actions={actions} timer />
     </div>
   );
 }
@@ -282,6 +311,12 @@ function Schedule({
                               <button role="menuitem" onClick={() => moveOut(b)}>Move out of today</button>
                             </>
                           )}
+                          {isWork && task && (
+                            <>
+                              <button role="menuitem" onClick={() => { setMenu(null); actions.openHelper(task.id, "breakdown"); }}>Break it down</button>
+                              <button role="menuitem" onClick={() => { setMenu(null); actions.openHelper(task.id, "assist"); }}>Help me start</button>
+                            </>
+                          )}
                           <button role="menuitem" onClick={() => { setEditing(b.id); setMenu(null); }}>Move / edit time</button>
                           {!isWork && (
                             <button role="menuitem" onClick={() => save((d) => { d.blocks = d.blocks.filter((x) => x.id !== b.id); })}>Remove</button>
@@ -326,7 +361,7 @@ function BlockEditor({ block, onSave, onCancel }: { block: PlanBlock; onSave: (p
   );
 }
 
-function Checklist({ plan, tasks, onToggle }: { plan: Plan; tasks: Map<string, Task>; onToggle: (t: Task, d: boolean) => void }) {
+function Checklist({ plan, tasks, onToggle, actions }: { plan: Plan; tasks: Map<string, Task>; onToggle: (t: Task, d: boolean) => void; actions: AppActions }) {
   const items = [
     ...(plan.focusTaskId ? [{ taskId: plan.focusTaskId, why: plan.focusWhy, focus: true }] : []),
     ...plan.supporting.map((s) => ({ ...s, focus: false })),
@@ -354,6 +389,9 @@ function Checklist({ plan, tasks, onToggle }: { plan: Plan; tasks: Map<string, T
                 {i.why && <span className="why block">{i.why}</span>}
               </span>
             </label>
+            <div className="checklist-extra">
+              <StepList task={t} actions={actions} compact />
+            </div>
           </li>
         );
       })}
@@ -440,7 +478,7 @@ function Meetings({ state, actions }: { state: AppState; actions: AppActions }) 
   );
 }
 
-function Completed({ state, plan, onToggle }: { state: AppState; plan: Plan | null; onToggle: (t: Task, d: boolean) => void }) {
+function Completed({ state, plan, onToggle, actions }: { state: AppState; plan: Plan | null; onToggle: (t: Task, d: boolean) => void; actions: AppActions }) {
   const inPlan = new Set(plan?.blocks.map((b) => b.taskId).filter(Boolean));
   const done = state.tasks.filter((t) => t.status === "done" && (inPlan.has(t.id) || (t.completedAt && isToday(t.completedAt, state.timezone, state.today))));
   if (!done.length) return null;
@@ -449,14 +487,24 @@ function Completed({ state, plan, onToggle }: { state: AppState; plan: Plan | nu
       <h3 className="h3">Completed today ({done.length})</h3>
       <ul className="plain-list">
         {done.map((t) => (
-          <li key={t.id} className="row between center-y">
+          <li key={t.id} className="completed-row">
             <span className="struck">{t.title}</span>
-            <button className="btn small ghost" onClick={() => onToggle(t, false)}>
-              Undo
-            </button>
+            <span className="row gap center-y wrap">
+              {t.type === "action" && <ActualTime task={t} actions={actions} />}
+              <button className="btn small ghost" onClick={() => onToggle(t, false)}>
+                Undo
+              </button>
+            </span>
           </li>
         ))}
       </ul>
+      {state.learning.factor ? (
+        <p className="muted small learning-line">
+          Nikki is learning your pace: tasks take about {state.learning.factor}× their estimate ({state.learning.samples} measured).
+        </p>
+      ) : (
+        <p className="muted small learning-line">Recording how long tasks really take helps Nikki plan more accurately.</p>
+      )}
     </div>
   );
 }

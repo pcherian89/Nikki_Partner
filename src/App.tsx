@@ -8,6 +8,7 @@ import { Everything } from "./components/Everything";
 import { Login } from "./components/Login";
 import { Today } from "./components/Today";
 import { Welcome } from "./components/Welcome";
+import { TaskHelper } from "./components/TaskTools";
 
 export type View = "home" | "today" | "everything" | "context";
 
@@ -21,14 +22,15 @@ export interface Toast {
 export interface PendingSend {
   text: string;
   requestId: string;
-  kind: "chat" | "review" | "replan";
+  kind: "chat" | "review" | "replan" | "wrapup";
   remainingUntil?: string | null;
 }
 
 export interface AppActions {
   /** Runs an API call that returns new state; shows errors as a toast. Returns true on success. */
   mutate: (method: string, url: string, body?: unknown) => Promise<boolean>;
-  send: (text: string, kind?: "chat" | "review") => Promise<boolean>;
+  send: (text: string, kind?: "chat" | "review" | "wrapup") => Promise<boolean>;
+  openHelper: (taskId: string, mode: "breakdown" | "assist") => void;
   replan: (remainingUntil: string | null, note?: string) => Promise<boolean>;
   setState: (s: AppState) => void;
   toast: (t: Toast) => void;
@@ -59,6 +61,7 @@ export default function App() {
   const [pending, setPending] = useState<PendingSend | null>(null);
   const [sendError, setSendError] = useState<{ message: string; send: PendingSend } | null>(null);
   const [composer, setComposer] = useState({ text: "", focusTick: 0 });
+  const [helper, setHelper] = useState<{ taskId: string; mode: "breakdown" | "assist" } | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
   const showToast = useCallback((t: Toast) => {
@@ -168,6 +171,7 @@ export default function App() {
   const actions: AppActions = {
     mutate,
     send: (text, kind = "chat") => doSend({ text, kind, requestId: newRequestId() }),
+    openHelper: (taskId, mode) => setHelper({ taskId, mode }),
     replan: (remainingUntil, note) => doSend({ text: note ?? "", kind: "replan", requestId: newRequestId(), remainingUntil }),
     setState,
     toast: showToast,
@@ -267,6 +271,8 @@ export default function App() {
         {view === "everything" && <Everything state={state} actions={actions} />}
         {view === "context" && <ContextView state={state} actions={actions} />}
       </main>
+
+      {helper && <TaskHelper state={state} actions={actions} taskId={helper.taskId} mode={helper.mode} onClose={() => setHelper(null)} />}
 
       {toast && (
         <div className={`toast ${toast.tone === "error" ? "error" : ""}`} role="status" aria-live="polite">

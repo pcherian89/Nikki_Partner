@@ -116,6 +116,16 @@ Ask me when you want to do this and I'll walk you through one host step by step.
 - **Everything:** active actions, waiting/blocked, parked ideas, reference notes, completed. You can add, edit, delete, change status, and deliberately promote an idea into an action.
 - **My context:** name, businesses/projects, goals, main outcome, commitments, working hours, timezone and preferences. All fields are optional and editable. This view also has the mode switch, data export, and data deletion.
 
+### Daily rhythm, task help and learning
+
+- **Evening wrap-up** (Today → "Wrap up my day"): see what got done, then decide what happens to each unfinished item (Tomorrow, Done, Park or Drop) and add an optional note. This needs no AI. You can also ask for a short reflection from Nikki, which is one AI message (scripted in Demo mode).
+- **Morning check-in**: the next day, Today shows what you finished, what's carrying over and your note. "Start my check-in with Nikki" pre-fills a message so planning picks up where you left off. Carried-over items are sent to the model as strong candidates.
+- **Break it down**: turns a task into 3–8 small steps with minute estimates. You can edit them before saving, then tick them off under the task.
+- **Help me start**: Nikki drafts something useful for the task, such as an email, outline, checklist or post. Unknown details are shown as `[placeholders]` and never invented. Drafts are saved with the task and can be copied.
+- **Learning your pace**: use the focus timer on a task, or say how long a finished task took in "Completed today". After 3 measured tasks, Nikki calculates how your real time compares with your estimates (overall, and per project) and plans with it. See My context → "What Nikki has learned about your pace".
+
+In Demo mode, steps and drafts come from clearly labelled templates, not AI.
+
 ### What is and isn't automatic
 
 - Opening or refreshing the app **loads saved state only**. It never calls the model.

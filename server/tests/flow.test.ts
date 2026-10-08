@@ -396,3 +396,131 @@ test("export and delete personal data", async () => {
   const personal = (await api("GET", "/api/state", undefined, "personal")).json.state;
   assert.equal(personal.tasks.length, 0);
 });
+
+// ---------- new: day rhythm, task helpers, learning ----------
+
+test("evening wrap-up applies decisions, saves a journal entry and drives the next morning", async () => {
+  const s = await demoPlan();
+  await api("POST", `/api/proposals/${s.proposal.id}/confirm`, {});
+  const plan = s.proposal.plan;
+  const focusId = plan.focusTaskId;
+  const [sup1, sup2] = plan.supporting.map((x: any) => x.taskId);
+  await api("PATCH", `/api/tasks/${focusId}`, { status: "done" });
+  process.env.NIKKI_FAKE_NOW = "2026-10-05T17:00:00Z";
+  const w = await api("POST", "/api/wrapup", {
+    decisions: [
+      { taskId: sup1, action: "tomorrow" },
+      { taskId: sup2, action: "park" },
+    ],
+    note: "Proposal felt good. Tired.",
+  });
+  assert.equal(w.status, 200);
+  const st = w.json.state;
+  assert.deepEqual(st.wrapUpToday.doneTaskIds, [focusId]);
+  assert.deepEqual(st.wrapUpToday.tomorrowTaskIds, [sup1]);
+  assert.equal(st.tasks.find((t: any) => t.id === sup2).type, "idea");
+  assert.ok(st.messages.at(-1).meta.system, "wrap-up note in chat");
+  // Optional reflection (demo: scripted, never a plan)
+  const r = await api("POST", "/api/messages", { text: "Evening wrap-up.\nDone today: Finish a proposal\nMoving to tomorrow: Review beta feedback", clientRequestId: "wrap-reflect-1", kind: "wrapup" });
+  assert.equal(r.status, 200);
+  assert.match(r.json.state.messages.at(-1).text, /finished Finish a proposal/);
+  assert.equal(r.json.state.proposal, null);
+  // Next morning: no "unfinished" review (already decided), check-in data available
+  process.env.NIKKI_FAKE_NOW = "2026-10-06T07:30:00Z";
+  const next = (await api("GET", "/api/state")).json.state;
+  assert.equal(next.newDay, null);
+  assert.equal(next.lastWrapUp.date, "2026-10-05");
+  assert.deepEqual(next.lastWrapUp.tomorrowTaskIds, [sup1]);
+  assert.equal(next.wrapUpToday, null);
+});
+
+test("break it down (demo): template steps, save, tick", async () => {
+  const t = (await api("POST", "/api/tasks", { title: "Finish the website and publish it live", estimateMinutes: 120 })).json.task;
+  const b = await api("POST", `/api/tasks/${t.id}/breakdown`, {});
+  assert.equal(b.status, 200);
+  assert.equal(b.json.demo, true);
+  assert.ok(b.json.steps.length >= 3);
+  const saved = await api("PUT", `/api/tasks/${t.id}/steps`, { steps: b.json.steps });
+  const steps = saved.json.state.tasks.find((x: any) => x.id === t.id).steps;
+  assert.equal(steps.length, b.json.steps.length);
+  const tick = await api("PATCH", `/api/steps/${steps[0].id}`, { done: true });
+  assert.equal(tick.json.state.tasks.find((x: any) => x.id === t.id).steps[0].done, true);
+  // re-saving keeps done state for kept steps
+  const again = await api("PUT", `/api/tasks/${t.id}/steps`, { steps: steps.map((x: any) => ({ id: x.id, title: x.title, minutes: x.minutes })) });
+  assert.equal(again.json.state.tasks.find((x: any) => x.id === t.id).steps[0].done, true);
+});
+
+test("help me start (demo) saves a labelled template draft; delete works", async () => {
+  const t = (await api("POST", "/api/tasks", { title: "Follow up with the client" })).json.task;
+  const a = await api("POST", `/api/tasks/${t.id}/assist`, { ask: "email" });
+  assert.equal(a.status, 200);
+  assert.equal(a.json.draft.demo, true);
+  assert.equal(a.json.draft.format, "email");
+  assert.match(a.json.draft.content, /\[name\]/);
+  assert.equal(a.json.state.drafts.length, 1);
+  const d = await api("DELETE", `/api/drafts/${a.json.draft.id}`);
+  assert.equal(d.json.state.drafts.length, 0);
+});
+
+test("live helpers: breakdown and draft go through the provider and are validated", async () => {
+  let calls = 0;
+  setProvider({
+    name: "fake",
+    model: "fake",
+    generate: async (req) => {
+      calls++;
+      if (req.system.includes("Break ONE task")) {
+        return calls === 1
+          ? { text: "oops", model: "fake" }
+          : { text: JSON.stringify({ steps: [{ title: "Outline the pages", minutes: 15 }, { title: "Write the copy", minutes: 45 }], note: "" }), model: "fake" };
+      }
+      return { text: JSON.stringify({ format: "email", title: "Ask for feedback", content: "Hi [name], ...", next_step: "Send it." }), model: "fake" };
+    },
+  });
+  const t = (await api("POST", "/api/tasks", { title: "Website copy" }, "personal")).json.task;
+  const b = await api("POST", `/api/tasks/${t.id}/breakdown`, {}, "personal");
+  assert.equal(b.status, 200);
+  assert.equal(b.json.demo, false);
+  assert.equal(b.json.steps.length, 2);
+  assert.equal(calls, 2, "one repair after invalid JSON");
+  const a = await api("POST", `/api/tasks/${t.id}/assist`, { ask: "" }, "personal");
+  assert.equal(a.json.draft.title, "Ask for feedback");
+  assert.equal(a.json.draft.demo, false);
+});
+
+test("learning: real durations produce an estimate factor that the planner uses", async () => {
+  for (const [est, actual] of [
+    [60, 90],
+    [30, 45],
+    [120, 180],
+  ]) {
+    const t = (await api("POST", "/api/tasks", { title: `Past task ${est}`, estimateMinutes: est })).json.task;
+    await api("PATCH", `/api/tasks/${t.id}`, { status: "done" });
+    await api("PATCH", `/api/tasks/${t.id}`, { actualMinutes: actual });
+  }
+  const st = (await api("GET", "/api/state")).json.state;
+  assert.equal(st.learning.samples, 3);
+  assert.equal(st.learning.factor, 1.5);
+  // Demo planning now schedules the 120-min proposal as 180 min of work.
+  const s = await demoPlan();
+  const focus = s.proposal.plan.focusTaskId;
+  const focusMinutes = s.proposal.plan.blocks
+    .filter((b: any) => b.taskId === focus)
+    .reduce((a: number, b: any) => a + (Number(b.end.slice(0, 2)) * 60 + Number(b.end.slice(3)) - Number(b.start.slice(0, 2)) * 60 - Number(b.start.slice(3))), 0);
+  assert.equal(focusMinutes, 180);
+});
+
+test("focus timer: one at a time; finishing records time", async () => {
+  const a = (await api("POST", "/api/tasks", { title: "Task A", estimateMinutes: 30 })).json.task;
+  const b = (await api("POST", "/api/tasks", { title: "Task B" })).json.task;
+  await api("POST", `/api/tasks/${a.id}/timer`, { action: "start" });
+  const s2 = (await api("POST", `/api/tasks/${b.id}/timer`, { action: "start" })).json.state;
+  assert.equal(s2.tasks.find((t: any) => t.id === a.id).timerStartedAt, null, "starting B pauses A");
+  assert.ok(s2.tasks.find((t: any) => t.id === b.id).timerStartedAt);
+  // simulate 40 minutes of focus on B
+  getDb("demo").prepare("UPDATE tasks SET timer_started_at = ? WHERE id = ?").run(new Date(Date.now() - 40 * 60000).toISOString(), b.id);
+  const done = (await api("PATCH", `/api/tasks/${b.id}`, { status: "done" })).json.task;
+  assert.equal(done.timerStartedAt, null);
+  assert.equal(done.spentMinutes, 40);
+  assert.equal(done.actualMinutes, 40);
+});

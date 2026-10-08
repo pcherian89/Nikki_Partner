@@ -25,9 +25,15 @@ import {
   setSetting,
   StalePlanError,
   updateTask,
+  listDrafts,
+  wrapUpFor,
+  lastWrapUpBefore,
+  saveWrapUp,
+  addMessage,
 } from "./db.js";
 import { getProvider } from "./provider/index.js";
-import { fromMinutes, isValidTimeZone, isValidTime, localNow, toMinutes } from "./time.js";
+import { estimationInsight } from "./learning.js";
+import { fromMinutes, isValidTimeZone, isValidTime, localDateOf, localNow, toMinutes } from "./time.js";
 import { validatePlanDraft, WORK_KINDS } from "./validate.js";
 
 export function resolveTimezone(profile: Profile, headerTz: string | undefined): string {
@@ -48,7 +54,8 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined):
   let newDay: AppState["newDay"] = null;
   if (!plan && getSetting(db, "review_done") !== now.date) {
     const last = latestPlanBefore(db, now.date);
-    if (last) {
+    // A wrap-up on that day already decided what happens to unfinished work.
+    if (last && !wrapUpFor(db, last.date)) {
       const ids = new Set<string>();
       for (const b of last.blocks) if (b.taskId && WORK_KINDS.has(b.kind)) ids.add(b.taskId);
       if (last.focusTaskId) ids.add(last.focusTaskId);
@@ -75,6 +82,10 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined):
     proposal,
     newDay,
     messages,
+    drafts: listDrafts(db),
+    wrapUpToday: wrapUpFor(db, now.date),
+    lastWrapUp: lastWrapUpBefore(db, now.date),
+    learning: estimationInsight(tasks),
     hasAnyData: messages.length > 0 || tasks.length > 0 || !!profile.updatedAt,
   };
 }
@@ -309,4 +320,45 @@ export function applyContextSuggestion(db: DB, proposalId: string, suggestionId:
   }
   s.status = action === "save" ? "saved" : "dismissed";
   saveProposal(db, p);
+}
+
+/** Tasks completed today (by local date), or done tasks that were in today's plan. */
+export function doneToday(db: DB, timezone: string) {
+  const today = localNow(timezone).date;
+  const plan = currentPlan(db, today);
+  const inPlan = new Set(plan?.blocks.map((b) => b.taskId).filter(Boolean) as string[]);
+  return listTasks(db).filter(
+    (t) => t.status === "done" && (inPlan.has(t.id) || (t.completedAt != null && localDateOf(t.completedAt, timezone) === today)),
+  );
+}
+
+export type WrapDecision = { taskId: string; action: "tomorrow" | "done" | "park" | "drop" };
+
+/** Evening wrap-up: applies decisions about unfinished work and saves a journal entry. No model call. */
+export function wrapUpDay(db: DB, input: { decisions: WrapDecision[]; note: string }, timezone: string) {
+  const today = localNow(timezone).date;
+  return db.transaction(() => {
+    for (const d of input.decisions) {
+      if (d.action === "done") updateTask(db, d.taskId, { status: "done" });
+      else if (d.action === "park") updateTask(db, d.taskId, { type: "idea", status: "open" });
+      else if (d.action === "drop") deleteTask(db, d.taskId);
+    }
+    const done = doneToday(db, timezone);
+    const tomorrow = input.decisions.filter((d) => d.action === "tomorrow").map((d) => d.taskId);
+    const entry = saveWrapUp(db, {
+      date: today,
+      doneTaskIds: done.map((t) => t.id),
+      doneTitles: done.map((t) => t.title),
+      tomorrowTaskIds: tomorrow,
+      note: input.note.trim(),
+    });
+    const parts = [
+      `${done.length} done`,
+      tomorrow.length ? `${tomorrow.length} moving to tomorrow` : "",
+      input.decisions.filter((d) => d.action === "park").length ? `${input.decisions.filter((d) => d.action === "park").length} parked` : "",
+      input.decisions.filter((d) => d.action === "drop").length ? `${input.decisions.filter((d) => d.action === "drop").length} dropped` : "",
+    ].filter(Boolean);
+    addMessage(db, { role: "assistant", text: `Day wrapped up: ${parts.join(", ")}.`, meta: { system: true, kind: "wrapup" } });
+    return entry;
+  })();
 }

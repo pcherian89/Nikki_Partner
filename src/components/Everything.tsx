@@ -3,6 +3,8 @@ import type { AppState, Task, TaskStatus, TaskType } from "../../shared/types";
 import type { AppActions } from "../App";
 import { fmtDuration } from "../util";
 import { useCompletion } from "./Today";
+import { StepList, TaskToolButtons } from "./TaskTools";
+import { ActualTime } from "./DayRhythm";
 
 export function Everything({ state, actions }: { state: AppState; actions: AppActions }) {
   const [title, setTitle] = useState("");
@@ -125,6 +127,14 @@ function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppSta
             {task.status === "waiting" && <span className="tag subtle">Waiting</span>}
           </span>
           {task.notes && !editing && <span className="muted small block">{task.notes}</span>}
+          <StepList task={task} actions={actions} compact />
+          {task.status === "done" && task.type === "action" && <ActualTime task={task} actions={actions} />}
+          {task.type === "action" && task.status !== "done" && <TaskToolButtons task={task} actions={actions} />}
+          {state.drafts.some((d) => d.taskId === task.id) && (
+            <button className="link small" onClick={() => actions.openHelper(task.id, "assist")}>
+              View drafts ({state.drafts.filter((d) => d.taskId === task.id).length})
+            </button>
+          )}
         </div>
         <div className="row gap task-actions">
           {task.type === "idea" && task.status === "open" && (
