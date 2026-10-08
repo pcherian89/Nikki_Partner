@@ -12,10 +12,22 @@ export function Welcome({ state, actions, sendError }: { state: AppState; action
   const ref = useRef<HTMLTextAreaElement>(null);
   const demo = state.workspace === "demo";
   const liveOff = !demo && !state.liveAvailable;
-  const greeting = state.profile.name ? `Hi ${state.profile.name}, I'm Nikki.` : "Hi, I'm Nikki.";
+  const returning = state.hasAnyData;
+  const name = state.profile.name;
+  const greeting = returning ? (name ? `Welcome back, ${name}.` : "Welcome back.") : name ? `Hi ${name}, I'm Nikki.` : "Hi, I'm Nikki.";
+  const openActions = state.tasks.filter((t) => t.type === "action" && t.status === "open").length;
+  const summary = state.plan
+    ? `Your plan for today is confirmed${state.plan.mainOutcome ? ` — main outcome: ${state.plan.mainOutcome}` : ""}.`
+    : state.proposal?.plan
+      ? "I have a proposed plan waiting for you to review."
+      : openActions
+        ? `You have ${openActions} open action${openActions > 1 ? "s" : ""} and no plan for today yet.`
+        : "";
 
   const submit = async (t = text) => {
     if (!t.trim()) return;
+    // Show the conversation while Nikki replies.
+    actions.setView("today");
     const ok = await actions.send(t.trim());
     if (ok) setText("");
   };
@@ -29,9 +41,18 @@ export function Welcome({ state, actions, sendError }: { state: AppState; action
       <div className="welcome-hero">
         <p className="eyebrow">{fmtDate(state.today)}</p>
         <h1 className="h1">{greeting}</h1>
+        {returning && summary && (
+          <p className="welcome-summary">
+            {summary}{" "}
+            <button className="link" onClick={() => actions.setView("today")}>
+              Go to today's plan →
+            </button>
+          </p>
+        )}
         <p className="lead">
-          Tell me everything on your mind — work, commitments, ideas, half-formed plans. I'll ask a couple of questions,
-          suggest what matters most today, and build a realistic schedule you can edit.
+          {returning
+            ? "Anything new or changed? Tell me in your own words and I'll fold it into your plan."
+            : "Tell me everything on your mind — work, commitments, ideas, half-formed plans. I'll ask a couple of questions, suggest what matters most today, and build a realistic schedule you can edit."}
         </p>
       </div>
 

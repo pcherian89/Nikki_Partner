@@ -429,6 +429,12 @@ input[type="time"] {
   border-bottom: 1px solid var(--line);
 }
 .brand {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font-size: inherit;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1371,7 +1377,7 @@ details summary {
     gap: 8px;
     flex-wrap: wrap;
   }
-  .brand span {
+  .brand-name {
     display: none;
   }
   .tabs {
@@ -1382,7 +1388,9 @@ details summary {
   }
   .tab {
     flex: 1;
-    padding: 7px 8px;
+    padding: 7px 4px;
+    font-size: 14px;
+    white-space: nowrap;
   }
   .mode-badge {
     margin-left: auto;
@@ -1488,4 +1496,10 @@ details summary {
 }
 .typing.inline {
   padding: 0 !important;
+}
+
+.welcome-summary {
+  color: var(--text);
+  font-weight: 500;
+  margin: 0 0 10px;
 }

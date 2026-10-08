@@ -9,7 +9,7 @@ import { Login } from "./components/Login";
 import { Today } from "./components/Today";
 import { Welcome } from "./components/Welcome";
 
-export type View = "today" | "everything" | "context";
+export type View = "home" | "today" | "everything" | "context";
 
 export interface Toast {
   text: string;
@@ -208,13 +208,14 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
+        <button className="brand" onClick={() => setView("home")} title="Home" aria-label="Nikki Partner, go to Home">
           <Avatar size={30} />
-          <span>Nikki Partner</span>
-        </div>
+          <span className="brand-name">Nikki Partner</span>
+        </button>
         <nav className="tabs" aria-label="Views">
           {(
             [
+              ["home", "Home"],
               ["today", "Today"],
               ["everything", "Everything"],
               ["context", "My context"],
@@ -229,6 +230,7 @@ export default function App() {
       </header>
 
       <main className="main">
+        {view === "home" && <Welcome state={state} actions={actions} sendError={sendError?.message ?? null} />}
         {view === "today" &&
           (showWelcome ? (
             <Welcome state={state} actions={actions} sendError={sendError?.message ?? null} />

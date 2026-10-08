@@ -111,6 +111,7 @@ Ask me when you want to do this and I'll walk you through one host step by step.
 
 ### Views
 
+- **Home:** the full-body Nikki welcome screen. Reach it with the Home tab or by clicking the Nikki Partner logo. When you come back, it summarises where you are and lets you tell Nikki anything new.
 - **Today:** conversation with Nikki beside today's plan. Shows the main outcome, an obvious "Now / Up next" item, schedule or checklist view, editable time blocks, fixed meetings, a time summary (available, planned work, breaks, buffer), collapsed "Not today", completed tasks with Undo, and **Update my plan**. Each work block has: Need more time (+15/+30), I'm blocked, Move out of today, Move/edit time.
 - **Everything:** active actions, waiting/blocked, parked ideas, reference notes, completed. You can add, edit, delete, change status, and deliberately promote an idea into an action.
 - **My context:** name, businesses/projects, goals, main outcome, commitments, working hours, timezone and preferences. All fields are optional and editable. This view also has the mode switch, data export, and data deletion.
