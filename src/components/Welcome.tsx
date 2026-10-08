@@ -96,34 +96,31 @@ export function Welcome({ state, actions, sendError }: { state: AppState; action
         </div>
       </div>
 
-      <div className={`mode-note ${demo ? "demo" : ""}`}>
-        {demo ? (
-          <>
-            <strong>Demo mode.</strong> Replies are scripted examples, not AI, and demo data is kept separate from your own.{" "}
-            {state.liveAvailable ? (
-              <button className="link" onClick={() => actions.switchWorkspace("personal")}>
-                Switch to live AI
+      {(demo || liveOff) && (
+        <div className={`mode-note ${demo ? "demo" : ""}`}>
+          {demo ? (
+            <>
+              <strong>Demo mode.</strong> Replies are scripted examples, not AI, and demo data is kept separate from your own.{" "}
+              {state.liveAvailable ? (
+                <button className="link" onClick={() => actions.switchWorkspace("personal")}>
+                  Switch to live AI
+                </button>
+              ) : (
+                <span>Add an API key to enable live AI (see README).</span>
+              )}
+            </>
+          ) : (
+            <>
+              <strong>Live AI isn't set up yet</strong> — the server has no ANTHROPIC_API_KEY. You can still add tasks and context
+              by hand, or{" "}
+              <button className="link" onClick={() => actions.switchWorkspace("demo")}>
+                try Demo mode
               </button>
-            ) : (
-              <span>Add an API key to enable live AI (see README).</span>
-            )}
-          </>
-        ) : liveOff ? (
-          <>
-            <strong>Live AI isn't set up yet</strong> — the server has no ANTHROPIC_API_KEY. You can still add tasks and context
-            by hand, or{" "}
-            <button className="link" onClick={() => actions.switchWorkspace("demo")}>
-              try Demo mode
-            </button>
-            .
-          </>
-        ) : (
-          <>
-            <strong>Live AI.</strong> Nikki's replies come from Claude ({state.model}). Your saved context is sent with each
-            request so Nikki can plan — it isn't used to train the model.
-          </>
-        )}
-      </div>
+              .
+            </>
+          )}
+        </div>
+      )}
       </div>
     </div>
   );

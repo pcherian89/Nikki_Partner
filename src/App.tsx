@@ -318,7 +318,7 @@ function ModeBadge({ state, onClick }: { state: AppState; onClick: () => void })
     <button
       className={`mode-badge ${state.liveAvailable ? "live" : "off"}`}
       onClick={onClick}
-      title={state.liveAvailable ? `Replies from Claude (${state.model})` : "No API key configured on the server"}
+      title={state.liveAvailable ? "Live AI is on" : "No API key configured on the server"}
     >
       {state.liveAvailable ? "Live AI" : "Live AI off"}
     </button>
