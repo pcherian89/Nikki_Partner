@@ -524,3 +524,122 @@ test("focus timer: one at a time; finishing records time", async () => {
   assert.equal(done.spentMinutes, 40);
   assert.equal(done.actualMinutes, 40);
 });
+
+// ---------- v3: context memory, dated commitments, tomorrow's plan, quick replies ----------
+
+function liveReply(over: Record<string, unknown>) {
+  return JSON.stringify({
+    message: "ok",
+    questions: [],
+    quick_replies: [],
+    captured_items: [],
+    task_updates: [],
+    meetings: [],
+    context_updates: [],
+    plan: null,
+    ...over,
+  });
+}
+
+test("context suggestions: list fields only add lines, never duplicate, and decided ones don't come back", async () => {
+  await api("PUT", "/api/profile", { preferences: "Deep work in the morning" }, "personal");
+  let next = liveReply({ context_updates: [{ field: "preferences", value: "SRTSU work takes priority", reason: "You said so." }] });
+  setProvider({ name: "fake", model: "fake", generate: async () => ({ text: next, model: "fake" }) });
+  const r1 = await send("SRTSU work always comes first", "personal");
+  const p1 = r1.json.state.proposal;
+  assert.equal(p1.contextSuggestions.length, 1);
+  const saved = await api("POST", `/api/proposals/${p1.id}/suggestions/${p1.contextSuggestions[0].id}`, { action: "save" }, "personal");
+  assert.equal(saved.json.state.profile.preferences, "Deep work in the morning\nSRTSU work takes priority");
+  // The model suggests the same thing again (and a rewrite that adds nothing) -> both filtered out
+  next = liveReply({
+    context_updates: [{ field: "preferences", value: "SRTSU work takes priority. Deep work in the morning.", reason: "Cleanup" }],
+  });
+  const r2 = await send("ok", "personal");
+  assert.equal(r2.json.state.proposal, null, "no repeat suggestion");
+  // A dismissed suggestion is not shown again
+  next = liveReply({ context_updates: [{ field: "goals", value: "Launch the website", reason: "New goal" }] });
+  const r3 = await send("my goal is launching the website", "personal");
+  const p3 = r3.json.state.proposal;
+  await api("POST", `/api/proposals/${p3.id}/suggestions/${p3.contextSuggestions[0].id}`, { action: "dismiss" }, "personal");
+  const r4 = await send("again", "personal");
+  assert.equal(r4.json.state.proposal, null);
+  // Saving the profile removes duplicate lines
+  const d = await api("PUT", "/api/profile", { preferences: "A\nB\na\nB." }, "personal");
+  assert.equal(d.json.state.profile.preferences, "A\nB");
+});
+
+test("commitments on any date are saved and appear in 'upcoming'; past dates are refused", async () => {
+  setProvider({
+    name: "fake",
+    model: "fake",
+    generate: async () => ({
+      text: liveReply({
+        meetings: [
+          { date: "2026-10-12", title: "Client review", start: "15:00", end: "16:00" },
+          { date: "2026-10-01", title: "Old thing", start: "10:00", end: "11:00" },
+          { date: "", title: "Standup", start: "11:00", end: "11:15" },
+        ],
+      }),
+      model: "fake",
+    }),
+  });
+  const r = await send("Client review next Monday 3pm, standup at 11 today", "personal");
+  const st = r.json.state;
+  assert.deepEqual(st.upcoming.map((m: any) => [m.date, m.title]), [["2026-10-12", "Client review"]]);
+  assert.deepEqual(st.meetings.map((m: any) => m.title), ["Standup"]);
+  assert.ok(st.messages.at(-1).meta.notes.some((n: string) => /Old thing/.test(n)));
+  // Manual add with a date
+  const m = await api("POST", "/api/meetings", { title: "Dentist", date: "2026-10-06", start: "09:00", end: "09:30" }, "personal");
+  assert.equal(m.json.state.tomorrow.meetings[0].title, "Dentist");
+  const past = await api("POST", "/api/meetings", { title: "Late", date: "2026-10-04", start: "09:00", end: "09:30" }, "personal");
+  assert.equal(past.status, 400);
+});
+
+test("plans for tomorrow are proposed, confirmed and kept separate from today", async () => {
+  await api("POST", "/api/meetings", { title: "Dentist", date: "2026-10-06", start: "09:00", end: "09:30" }, "personal");
+  const t = (await api("POST", "/api/tasks", { title: "Write newsletter", estimateMinutes: 60 }, "personal")).json.task;
+  setProvider({
+    name: "fake",
+    model: "fake",
+    generate: async () => ({
+      text: liveReply({
+        quick_replies: ["Looks good", "Make it lighter"],
+        plan: {
+          date: "2026-10-06",
+          main_outcome: "Newsletter out",
+          focus: { task_ref: t.id, why: "Main thing" },
+          supporting: [],
+          deferred: [],
+          window: { start: "09:00", end: "13:00" },
+          work_budget_minutes: 120,
+          blocks: [
+            { start: "09:00", end: "09:30", kind: "meeting", task_ref: "", title: "Dentist" },
+            { start: "10:00", end: "11:00", kind: "focus", task_ref: t.id, title: "Write newsletter" },
+          ],
+          reasons: [],
+          assumptions: [],
+        },
+      }),
+      model: "fake",
+    }),
+  });
+  const r = await send("Let's plan tomorrow", "personal");
+  const st = r.json.state;
+  assert.equal(st.proposal.date, "2026-10-06");
+  assert.deepEqual(st.messages.at(-1).meta.quickReplies, ["Looks good", "Make it lighter"]);
+  const c = await api("POST", `/api/proposals/${st.proposal.id}/confirm`, {}, "personal");
+  assert.equal(c.status, 200);
+  assert.equal(c.json.state.plan, null, "today untouched");
+  assert.equal(c.json.state.tomorrow.plan.mainOutcome, "Newsletter out");
+  // Next day it becomes today's plan
+  process.env.NIKKI_FAKE_NOW = "2026-10-06T07:00:00Z";
+  const next = (await api("GET", "/api/state", undefined, "personal")).json.state;
+  assert.equal(next.plan.mainOutcome, "Newsletter out");
+});
+
+test("demo: 'plan tomorrow' proposes a plan dated tomorrow", async () => {
+  await api("POST", "/api/tasks", { title: "Call the bank", estimateMinutes: 30 });
+  const r = await send("Can you plan tomorrow for me?");
+  assert.equal(r.json.state.proposal.date, "2026-10-06");
+  assert.ok(r.json.state.proposal.plan.blocks.length > 0);
+});

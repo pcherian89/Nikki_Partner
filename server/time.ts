@@ -77,3 +77,8 @@ export function addDays(date: string, days: number): string {
 export function localDateOf(iso: string, tz: string): string {
   return localNow(tz, new Date(iso)).date;
 }
+
+/** Weekday name of a calendar date (independent of timezone). */
+export function weekdayOf(date: string): string {
+  return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
+}

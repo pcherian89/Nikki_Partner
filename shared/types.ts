@@ -151,6 +151,8 @@ export interface ContextSuggestion {
   value: string;
   reason: string;
   status: "pending" | "saved" | "dismissed";
+  /** The field's saved value when the suggestion was made (for showing a before/after). */
+  current?: string;
 }
 
 export interface Proposal {
@@ -183,6 +185,7 @@ export interface ChatMessage {
     demoInfo?: unknown;
     kind?: "chat" | "replan" | "review" | "wrapup";
     system?: boolean;
+    quickReplies?: string[];
   };
 }
 
@@ -211,6 +214,9 @@ export interface AppState {
   /** The most recent wrap-up from an earlier day (used for the morning check-in). */
   lastWrapUp: WrapUp | null;
   learning: EstimationInsight;
+  tomorrow: { date: string; weekday: string; plan: Plan | null; meetings: Meeting[] };
+  /** Commitments after today (next 30 days). */
+  upcoming: Meeting[];
 }
 
 export interface ApiError {

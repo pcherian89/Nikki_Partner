@@ -1713,3 +1713,250 @@ details summary {
     padding-top: 12px;
   }
 }
+
+/* ---------- v3: day switch, progress, now-line, agenda, brief, voice, motion ---------- */
+.day-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.day-switch button {
+  padding: 7px 16px;
+}
+.day-switch .muted {
+  font-weight: 400;
+}
+.progress-ring {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+.progress-ring .ring-bg {
+  fill: none;
+  stroke: var(--surface-3);
+  stroke-width: 4;
+}
+.progress-ring .ring-fg {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.progress-ring .ring-label {
+  position: absolute;
+  font-size: 11.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.now-line {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+}
+.now-line::after {
+  content: "";
+  flex: 1;
+  height: 1.5px;
+  background: linear-gradient(90deg, var(--accent), transparent);
+}
+.now-line span {
+  width: 74px;
+  flex: none;
+}
+.slot.current .slot-body {
+  box-shadow: 0 0 0 1px var(--accent-line), 0 0 24px rgba(163, 230, 53, 0.08);
+}
+.slot.kind-focus.current .slot-body {
+  box-shadow: inset 3px 0 0 var(--accent), 0 0 0 1px var(--accent-line), 0 0 24px rgba(163, 230, 53, 0.08);
+}
+.agenda {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+.agenda-date {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+.agenda-day.overdue .agenda-date {
+  color: var(--warn);
+}
+.agenda-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+.agenda-item > span:nth-child(2) {
+  flex: 1;
+}
+.agenda-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+.agenda-item.deadline .agenda-dot {
+  background: var(--warn);
+}
+.icon-btn.small-x {
+  width: 24px;
+  height: 24px;
+  font-size: 15px;
+}
+.brief {
+  margin-bottom: 18px;
+}
+.brief-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+.brief-card {
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--text);
+  transition: border-color 0.15s, transform 0.15s, background 0.15s;
+}
+.brief-card:hover {
+  border-color: var(--accent-line);
+  transform: translateY(-1px);
+  background: var(--surface-2);
+}
+.brief-card strong {
+  font-size: 15px;
+  line-height: 1.35;
+}
+.ring-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+.brief-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 13.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mic-btn {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  color: var(--text-2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.mic-btn:hover {
+  color: var(--text);
+}
+.mic-btn.on {
+  color: #0d1408;
+  background: var(--accent);
+  border-color: var(--accent);
+  animation: listen 1.4s ease-in-out infinite;
+}
+@keyframes listen {
+  50% {
+    box-shadow: 0 0 0 6px rgba(163, 230, 53, 0.18);
+  }
+}
+.chip.quick {
+  border-color: var(--accent-line);
+  color: var(--text);
+}
+.chip.quick:hover {
+  background: var(--accent-soft);
+}
+.suggest-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.suggest-value {
+  margin: 2px 0;
+}
+/* gentle entrance for new messages and cards */
+.msg,
+.proposal,
+.system-note {
+  animation: rise 0.28s ease-out both;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+/* satisfying check */
+.check:checked {
+  animation: pop 0.28s ease-out;
+}
+@keyframes pop {
+  40% {
+    transform: scale(1.18);
+  }
+}
+.slot-title,
+.steps span,
+.next-title {
+  transition: color 0.25s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg,
+  .proposal,
+  .system-note,
+  .check:checked,
+  .mic-btn.on {
+    animation: none !important;
+  }
+}
+@media (max-width: 900px) {
+  .brief-grid {
+    grid-template-columns: 1fr 1fr;
+    text-align: left;
+  }
+  .welcome-content .brief {
+    text-align: left;
+  }
+  .day-switch button {
+    padding: 6px 10px;
+  }
+  .now-line span {
+    width: 58px;
+  }
+}
+@media (max-width: 420px) {
+  .brief-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -26,6 +26,7 @@ import {
   StalePlanError,
   updateTask,
   listDrafts,
+  listMeetingsBetween,
   wrapUpFor,
   lastWrapUpBefore,
   saveWrapUp,
@@ -33,7 +34,8 @@ import {
 } from "./db.js";
 import { getProvider } from "./provider/index.js";
 import { estimationInsight } from "./learning.js";
-import { fromMinutes, isValidTimeZone, isValidTime, localDateOf, localNow, toMinutes } from "./time.js";
+import { LIST_FIELDS, recordDecision } from "./contextMemory.js";
+import { addDays, fromMinutes, isValidTimeZone, isValidTime, localDateOf, localNow, toMinutes, weekdayOf } from "./time.js";
 import { validatePlanDraft, WORK_KINDS } from "./validate.js";
 
 export function resolveTimezone(profile: Profile, headerTz: string | undefined): string {
@@ -49,7 +51,7 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined):
   const tasks = listTasks(db);
   const plan = currentPlan(db, now.date);
   let proposal = latestPendingProposal(db);
-  if (proposal && proposal.date !== now.date && proposal.plan) proposal = { ...proposal, status: "stale" };
+  if (proposal && proposal.date < now.date && proposal.plan) proposal = { ...proposal, status: "stale" };
 
   let newDay: AppState["newDay"] = null;
   if (!plan && getSetting(db, "review_done") !== now.date) {
@@ -86,6 +88,11 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined):
     wrapUpToday: wrapUpFor(db, now.date),
     lastWrapUp: lastWrapUpBefore(db, now.date),
     learning: estimationInsight(tasks),
+    tomorrow: (() => {
+      const date = addDays(now.date, 1);
+      return { date, weekday: weekdayOf(date), plan: currentPlan(db, date), meetings: listMeetings(db, date) };
+    })(),
+    upcoming: listMeetingsBetween(db, addDays(now.date, 1), addDays(now.date, 30)),
     hasAnyData: messages.length > 0 || tasks.length > 0 || !!profile.updatedAt,
   };
 }
@@ -165,7 +172,7 @@ export function confirmProposal(
     throw new UserFacingError("This proposal is no longer current. Ask Nikki for an updated plan.", 409, "stale");
   }
   const now = localNow(opts.timezone);
-  if (p.plan && p.date !== now.date) {
+  if (p.plan && (p.date < now.date || p.date > addDays(now.date, 1))) {
     setProposalStatus(db, p.id, "stale");
     throw new UserFacingError(`This proposal was for ${p.date}. Let's plan today instead.`, 409, "stale");
   }
@@ -195,7 +202,8 @@ export function confirmProposal(
       }
       const current = currentPlan(db, p.date);
       const tasks = taskMap(db);
-      const nowMin = toMinutes(now.time);
+      // For tomorrow's plan nothing is in the past yet.
+      const nowMin = p.date === now.date ? toMinutes(now.time) : -1;
       const newBlocks = draft.blocks.filter((b) => b.kind !== "meeting");
       // Preserve completed work and the past from the current confirmed plan.
       const preserved = (current?.blocks ?? []).filter((b) => {
@@ -270,12 +278,13 @@ function applyTaskChange(db: DB, c: { taskId: string; change: string; title: str
 }
 
 /** Direct user edit of today's confirmed plan (move/extend/edit/remove blocks). */
-export function editPlan(db: DB, input: { expectedVersion: number; plan: unknown }, timezone: string) {
+export function editPlan(db: DB, input: { expectedVersion: number; plan: unknown; date?: string }, timezone: string) {
   const now = localNow(timezone);
   const parsed = PlanDraftInput.safeParse(input.plan);
   if (!parsed.success) throw new UserFacingError("The edited plan is malformed.", 400, "invalid", parsed.error.issues.map((i) => i.message));
-  const draft = normaliseDraft(now.date, parsed.data);
-  const { meetings, blocks } = withMeetingBlocks(db, now.date, draft.blocks);
+  const date = input.date === addDays(now.date, 1) ? input.date : now.date;
+  const draft = normaliseDraft(date, parsed.data);
+  const { meetings, blocks } = withMeetingBlocks(db, date, draft.blocks);
   const final = { ...draft, blocks };
   const errors = validatePlanDraft(final, { meetings, tasks: taskMap(db) });
   if (errors.length) throw new UserFacingError("That change doesn't fit the plan.", 422, "invalid_plan", errors);
@@ -301,7 +310,6 @@ export function reviewNewDay(db: DB, decisions: { taskId: string; action: "keep"
   })();
 }
 
-const REPLACE_FIELDS = new Set(["name", "workStart", "workEnd", "timezone", "mainOutcome"]);
 
 export function applyContextSuggestion(db: DB, proposalId: string, suggestionId: string, action: "save" | "dismiss", value?: string) {
   const p = getProposal(db, proposalId);
@@ -314,11 +322,15 @@ export function applyContextSuggestion(db: DB, proposalId: string, suggestionId:
     if (s.field === "timezone" && !isValidTimeZone(v)) throw new UserFacingError(`"${v}" isn't a recognised timezone.`);
     const profile = getProfile(db);
     const field = s.field as (typeof CONTEXT_FIELDS)[number];
-    const cur = profile[field] ?? "";
-    profile[field] = REPLACE_FIELDS.has(field) || !cur ? v : cur.includes(v) ? cur : `${cur}\n${v}`;
+    // List fields: add the new line (existing lines are never removed). Single values: replace.
+    const cur = (profile[field] ?? "").trim();
+    profile[field] = LIST_FIELDS.has(field) && cur ? `${cur}\n${v}` : v;
     saveProfile(db, profile);
   }
   s.status = action === "save" ? "saved" : "dismissed";
+  recordDecision(db, s.field, s.value, s.status);
+  // A card that only held suggestions is finished once every suggestion is answered.
+  if (!p.plan && !p.taskChanges.length && p.contextSuggestions.every((c) => c.status !== "pending")) p.status = "confirmed";
   saveProposal(db, p);
 }
 

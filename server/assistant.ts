@@ -28,14 +28,16 @@ import {
   supersedePending,
   lastWrapUpBefore,
   wrapUpFor,
+  listMeetingsBetween,
 } from "./db.js";
 import { estimationInsight } from "./learning.js";
+import { declinedForModel, filterSuggestions } from "./contextMemory.js";
 import { demoRespond } from "./demo.js";
 import { buildAppState, boundedHistory, SYSTEM_PROMPT } from "./prompt.js";
 import { getProvider } from "./provider/index.js";
 import { ProviderError, ProviderMessage } from "./provider/types.js";
 import { ModelResponse, RESPONSE_JSON_SCHEMA } from "./schema.js";
-import { isValidDate, isValidTime, localNow, toMinutes } from "./time.js";
+import { addDays, weekdayOf, isValidDate, isValidTime, localNow, toMinutes } from "./time.js";
 import { findDuplicate, validateMeeting, validatePlanDraft } from "./validate.js";
 
 export class UserFacingError extends Error {
@@ -73,7 +75,16 @@ const MAX_CAPTURES = 25;
  */
 export function resolveResponse(
   resp: ModelResponse,
-  ctx: { tasks: Task[]; meetings: Meeting[]; date: string; now: string; kind: TurnInput["kind"]; source: Task["source"] },
+  ctx: {
+    tasks: Task[];
+    /** Saved meetings on a given date. */
+    meetingsOn: (date: string) => Meeting[];
+    date: string;
+    tomorrow: string;
+    now: string;
+    kind: TurnInput["kind"];
+    source: Task["source"];
+  },
 ): Resolved {
   const notes: string[] = [];
   const refMap = new Map<string, string>();
@@ -120,14 +131,19 @@ export function resolveResponse(
 
   const newMeetings: Meeting[] = [];
   for (const m of resp.meetings) {
-    const all = [...ctx.meetings, ...newMeetings];
+    const date = m.date ?? ctx.date;
+    if (!isValidDate(date) || date < ctx.date) {
+      notes.push(`Didn't add "${m.title}": its date (${m.date}) isn't today or later.`);
+      continue;
+    }
+    const all = [...ctx.meetingsOn(date), ...newMeetings.filter((x) => x.date === date)];
     if (all.some((e) => e.start === m.start && e.end === m.end)) continue;
     const errs = validateMeeting(m, all);
     if (errs.length) {
       notes.push(`Didn't add meeting: ${errs[0]}`);
       continue;
     }
-    newMeetings.push({ id: newId("m"), date: ctx.date, title: m.title, start: m.start, end: m.end });
+    newMeetings.push({ id: newId("m"), date, title: m.title, start: m.start, end: m.end });
   }
 
   const taskChanges: TaskChange[] = [];
@@ -158,7 +174,10 @@ export function resolveResponse(
   if (resp.plan && ctx.kind !== "wrapup") {
     const p = resp.plan;
     const resolve = (ref: string | null) => (ref ? (refMap.get(ref) ?? ref) : null);
-    const allMeetings = [...ctx.meetings, ...newMeetings];
+    // Plans can be for today or tomorrow; replans are always for today.
+    const planDate = ctx.kind !== "replan" && p.date === ctx.tomorrow ? ctx.tomorrow : ctx.date;
+    if (p.date && p.date !== planDate) notes.push(`Nikki proposed a plan for ${p.date}; plans can only be made for today or tomorrow.`);
+    const allMeetings = [...ctx.meetingsOn(planDate), ...newMeetings.filter((m) => m.date === planDate)];
     const nowMin = toMinutes(ctx.now);
     const blocks: PlanBlock[] = [];
     for (const b of p.blocks) {
@@ -177,7 +196,7 @@ export function resolveResponse(
       });
     }
     draft = {
-      date: ctx.date,
+      date: planDate,
       mainOutcome: p.main_outcome,
       focusTaskId: resolve(p.focus.task_ref),
       focusWhy: p.focus.why,
@@ -251,7 +270,15 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
     const pending = latestPendingProposal(db);
     const baseVersion = currentPlanVersion(db, now.date);
     const history = recentMessages(db, 40);
-    const ctx = { tasks, meetings, date: now.date, now: now.time, kind: input.kind, source: ws === "demo" ? ("demo" as const) : ("nikki" as const) };
+    const ctx = {
+      tasks,
+      meetingsOn: (date: string) => (date === now.date ? meetings : listMeetings(db, date)),
+      date: now.date,
+      tomorrow: addDays(now.date, 1),
+      now: now.time,
+      kind: input.kind,
+      source: ws === "demo" ? ("demo" as const) : ("nikki" as const),
+    };
 
     let resp: ModelResponse;
     let resolved: Resolved;
@@ -270,6 +297,7 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
         now: now.time,
         lastAssistant,
         learning: estimationInsight(tasks),
+        tomorrow: { date: ctx.tomorrow, meetings: listMeetings(db, ctx.tomorrow) },
       });
       resp = demo.response;
       demoMeta = { demo: true, ...demo.meta };
@@ -294,6 +322,14 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
         learning: estimationInsight(tasks),
         lastWrapUp: lastWrapUpBefore(db, now.date),
         wrapUpToday: wrapUpFor(db, now.date),
+        tomorrow: {
+          date: ctx.tomorrow,
+          weekday: weekdayOf(ctx.tomorrow),
+          plan: currentPlan(db, ctx.tomorrow),
+          meetings: listMeetings(db, ctx.tomorrow),
+        },
+        upcoming: listMeetingsBetween(db, addDays(now.date, 2), addDays(now.date, 30)),
+        declinedSuggestions: declinedForModel(db),
       });
       const messages: ProviderMessage[] = boundedHistory(history);
       const last = messages[messages.length - 1];
@@ -364,22 +400,26 @@ function persistTurn(
     for (const m of resolved.newMeetings) createMeeting(db, m);
     let proposal: Proposal | null = null;
     let draft = resolved.draft;
-    if (!draft && a.pending?.plan && a.pending.basePlanVersion === a.baseVersion && a.pending.date === a.date) {
+    if (
+      !draft &&
+      a.pending?.plan &&
+      a.pending.date >= a.date &&
+      a.pending.basePlanVersion === currentPlanVersion(db, a.pending.date)
+    ) {
       draft = a.pending.plan; // carry an unconfirmed plan forward while clarifying
     }
-    const carriedSuggestions = (a.pending?.contextSuggestions ?? []).filter(
-      (c) => c.status === "pending" && !resolved.contextSuggestions.some((n) => n.field === c.field && n.value === c.value),
-    );
-    resolved.contextSuggestions = [...carriedSuggestions, ...resolved.contextSuggestions];
+    // Newer suggestions win; carried-over pending ones are kept only for other fields.
+    const carried = (a.pending?.contextSuggestions ?? []).filter((c) => c.status === "pending");
+    resolved.contextSuggestions = filterSuggestions(db, getProfile(db), [...carried, ...resolved.contextSuggestions]);
     if (draft || resolved.taskChanges.length || resolved.contextSuggestions.length) {
       supersedePending(db);
       proposal = {
         id: newId("pr"),
         createdAt: nowIso(),
         status: "pending",
-        date: a.date,
+        date: draft?.date ?? a.date,
         kind: a.kind === "replan" ? "replan" : "plan",
-        basePlanVersion: a.baseVersion,
+        basePlanVersion: draft ? currentPlanVersion(db, draft.date) : a.baseVersion,
         plan: draft,
         taskChanges: resolved.taskChanges,
         contextSuggestions: resolved.contextSuggestions,
@@ -394,6 +434,7 @@ function persistTurn(
         ...a.demoMeta,
         kind: a.kind,
         questions: resp.questions.slice(0, 2),
+        quickReplies: resp.quick_replies.map((q) => q.trim()).filter(Boolean).slice(0, 3),
         proposalId: proposal?.id,
         capturedTaskIds: resolved.newTasks.map((t) => t.id),
         addedMeetingIds: resolved.newMeetings.map((m) => m.id),

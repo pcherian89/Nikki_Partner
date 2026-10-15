@@ -116,6 +116,14 @@ Ask me when you want to do this and I'll walk you through one host step by step.
 - **Everything:** active actions, waiting/blocked, parked ideas, reference notes, completed. You can add, edit, delete, change status, and deliberately promote an idea into an action.
 - **My context:** name, businesses/projects, goals, main outcome, commitments, working hours, timezone and preferences. All fields are optional and editable. This view also has the mode switch, data export, and data deletion.
 
+### Today, tomorrow and what's coming up
+
+- **Today / Tomorrow switch** at the top of the plan. Ask Nikki to "plan tomorrow", for example after your evening wrap-up. Tomorrow's plan is proposed, edited and confirmed the same way as today's, and becomes today's plan the next morning.
+- **Commitments on any date**: tell Nikki "client review next Monday 3–4pm" and it's saved for that date. **Coming up** lists the next weeks' commitments, plus deadlines and anything overdue. You can also add commitments there by hand.
+- **Daily brief on Home**: your focus, what's next, progress on today's planned work, and what's coming up.
+- **Quick replies**: tap-to-send answers under Nikki's latest message. **Voice**: use the mic button to talk instead of type (Chrome, Edge and Safari). Press **/** to jump to the message box.
+- **Saved context stays clean**: for list fields (projects, goals, commitments, preferences), Nikki only *adds* new lines, so nothing is ever removed. Single values (name, hours, timezone) show a before → after. Suggestions you've saved or dismissed don't come back, and duplicate lines are removed automatically.
+
 ### Daily rhythm, task help and learning
 
 - **Evening wrap-up** (Today → "Wrap up my day"): see what got done, then decide what happens to each unfinished item (Tomorrow, Done, Park or Drop) and add an optional note. This needs no AI. You can also ask for a short reflection from Nikki, which is one AI message (scripted in Demo mode).

@@ -27,6 +27,7 @@ export interface DemoInput {
   now: string;
   lastAssistant: ChatMessage | null;
   learning?: EstimationInsight;
+  tomorrow?: { date: string; meetings: Meeting[] };
 }
 
 export interface DemoInfo {
@@ -147,6 +148,7 @@ function bestMatch(outcome: string | null, tasks: Task[]): Task | null {
 const empty = (): ModelResponse => ({
   message: "",
   questions: [],
+  quick_replies: [],
   captured_items: [],
   task_updates: [],
   meetings: [],
@@ -163,6 +165,9 @@ const learned = (input: DemoInput, minutes: number, project?: string | null) =>
 
 export function demoRespond(input: DemoInput): DemoResult {
   if (input.kind === "replan") return demoReplan(input);
+  if (input.kind === "chat" && input.tomorrow && /\btomorrow\b/i.test(input.text) && /\bplan\b/i.test(input.text)) {
+    return demoPlanTomorrow(input);
+  }
   if (input.kind === "wrapup") {
     const res = empty();
     const doneMatch = input.text.match(/Done today: ([^\n]+)/);
@@ -170,8 +175,9 @@ export function demoRespond(input: DemoInput): DemoResult {
     res.message = [
       doneMatch ? `Nice work today — you finished ${doneMatch[1]}.` : "Thanks for wrapping up. Even a slow day counts.",
       tomorrowMatch ? `${tomorrowMatch[1]} will be waiting for you tomorrow, and I'll bring it up in your morning check-in.` : "Nothing is carrying over, so tomorrow starts fresh.",
-      "Tomorrow, start by telling me how much time you have.",
+      "Want me to sketch tomorrow's plan now?",
     ].join(" ");
+    res.quick_replies = ["Plan tomorrow"];
     return { response: res, meta: { demoPhase: "idle" } };
   }
 
@@ -215,7 +221,7 @@ export function demoRespond(input: DemoInput): DemoResult {
       duplicate_of: null,
     }));
   if (meeting && !input.meetings.some((m) => m.start === meeting.start && m.end === meeting.end)) {
-    res.meetings.push(meeting);
+    res.meetings.push({ date: null, ...meeting });
   }
 
   const nameMatch = text.match(/\bmy name is ([A-Z][a-z]+)/);
@@ -286,7 +292,7 @@ function proposeFromInfo(
     assumptions.push("You'll start at 09:00 (you didn't say).");
   }
   const meetings: Meeting[] = [...input.meetings];
-  for (const m of res.meetings) meetings.push({ id: "pending", date: "", ...m });
+  for (const m of res.meetings) meetings.push({ id: "pending", title: m.title, start: m.start, end: m.end, date: "" });
   if (info.meeting && !meetings.some((m) => m.start === info.meeting!.start)) {
     meetings.push({ id: "pending", date: "", title: "Meeting", ...info.meeting });
   }
@@ -354,6 +360,7 @@ function proposeFromInfo(
     budget_excludes_meetings: info.excludesMeeting,
   };
   res.plan = {
+    date: null,
     main_outcome: outcome,
     focus: { task_ref: focus.ref, why: "It's tied to your main outcome, so it gets the first and longest uninterrupted stretch." },
     supporting: supporting.map((c) => ({ task_ref: c.ref, why: "Meaningful progress that fits after the focus work." })),
@@ -426,6 +433,7 @@ function demoReplan(input: DemoInput): DemoResult {
   const focus = items.find((i) => placed.has(i.ref)) ?? items[0];
   const completed = input.tasks.filter((t) => done.has(t.id) && plan?.blocks.some((b) => b.taskId === t.id));
   res.plan = {
+    date: null,
     main_outcome: plan?.mainOutcome ?? `${focus.title} — done`,
     focus: { task_ref: focus.ref, why: focus.ref === plan?.focusTaskId ? "Still your main focus — priorities stay stable." : "The earlier focus is done or blocked, so this is next." },
     supporting: items.filter((i) => i !== focus && placed.has(i.ref)).slice(0, 2).map((i) => ({ task_ref: i.ref, why: "Still fits in the time left." })),
@@ -440,5 +448,44 @@ function demoReplan(input: DemoInput): DemoResult {
     assumptions: input.remainingUntil ? [] : [`You can keep working until ${until}.`],
   };
   res.message = `Here's an updated plan from ${fromMinutes(startMin)} to ${until}. Completed work and fixed meetings stay as they are. Review the changes, then confirm.`;
+  return { response: res, meta: { demoPhase: "proposed" } };
+}
+
+/** Demo: a simple plan for tomorrow from open actions, saved hours (or 9–5) and tomorrow's commitments. */
+function demoPlanTomorrow(input: DemoInput): DemoResult {
+  const res = empty();
+  const t = input.tomorrow!;
+  const start = isValidTime(input.profile.workStart) ? input.profile.workStart : "09:00";
+  const end = isValidTime(input.profile.workEnd) && toMinutes(input.profile.workEnd) > toMinutes(start) ? input.profile.workEnd : "17:00";
+  const window = { start, end };
+  const open = input.tasks.filter((x) => x.type === "action" && x.status === "open");
+  if (!open.length) {
+    res.message = "There's nothing open to plan for tomorrow yet. Tell me what's coming up and I'll lay it out.";
+    return { response: res, meta: { demoPhase: "idle" } };
+  }
+  const budget = Math.min(6 * 60, freeMinutes(window, t.meetings));
+  const items: ScheduleItem[] = open.slice(0, 3).map((x, i) => ({
+    ref: x.id,
+    title: x.title,
+    minutes: learned(input, x.estimateMinutes ?? estimateFor(x.title), x.project),
+    kind: i === 0 ? "focus" : "task",
+  }));
+  const sched = scheduleBlocks({ window, meetings: t.meetings, budgetMinutes: budget, items });
+  const placed = new Set(sched.placed.map((p) => p.ref));
+  const focus = items.find((i) => placed.has(i.ref)) ?? items[0];
+  res.plan = {
+    date: t.date,
+    main_outcome: `${focus.title} — moved forward`,
+    focus: { task_ref: focus.ref, why: "It's the most important open action, so it gets the first stretch tomorrow." },
+    supporting: items.filter((i) => i !== focus && placed.has(i.ref)).map((i) => ({ task_ref: i.ref, why: "Fits after the focus work." })),
+    deferred: open.slice(3).map((x) => ({ task_ref: x.id, why: "Not enough room tomorrow." })),
+    window,
+    work_budget_minutes: budget,
+    blocks: sched.blocks,
+    reasons: ["A head start: tomorrow's plan is ready before the day begins."],
+    assumptions: [`You'll work ${start}–${end} tomorrow${isValidTime(input.profile.workStart) ? " (your usual hours)" : ""}.`],
+  };
+  res.message = `Here's a draft for tomorrow, ${start}–${end}, around your commitments. Adjust anything, then confirm.`;
+  res.quick_replies = [];
   return { response: res, meta: { demoPhase: "proposed" } };
 }

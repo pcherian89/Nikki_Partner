@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AppState, ChatMessage } from "../../shared/types";
 import type { AppActions, PendingSend } from "../App";
 import { Avatar } from "./Avatar";
+import { MicButton } from "./Voice";
 
 interface Props {
   state: AppState;
@@ -43,6 +44,27 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
   };
 
   const last = state.messages[state.messages.length - 1];
+  const lastNikki = last?.role === "assistant" && !last.meta.system ? last : null;
+  const quickReplies = lastNikki
+    ? lastNikki.meta.quickReplies?.length
+      ? lastNikki.meta.quickReplies
+      : lastNikki.meta.exampleAnswer
+        ? [lastNikki.meta.exampleAnswer]
+        : []
+    : [];
+
+  // "/" jumps to the message box from anywhere on the page.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && !el.isContentEditable) {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const proposal = state.proposal;
 
   return (
@@ -135,12 +157,13 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
             </div>
           </div>
         )}
-        {demo && last?.role === "assistant" && last.meta.exampleAnswer && !pending && (
-          <div className="suggest-row">
-            <span className="muted small">Example answer:</span>
-            <button className="chip" onClick={() => submit(last.meta.exampleAnswer!)}>
-              {last.meta.exampleAnswer}
-            </button>
+        {lastNikki && !pending && quickReplies.length > 0 && (
+          <div className="suggest-row" aria-label="Quick replies">
+            {quickReplies.map((q) => (
+              <button key={q} className="chip quick" onClick={() => submit(q)}>
+                {q}
+              </button>
+            ))}
           </div>
         )}
         <div ref={endRef} />
@@ -157,7 +180,7 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
           ref={inputRef}
           rows={2}
           value={text}
-          placeholder={liveOff ? "Live AI isn't configured — add an API key or use Demo mode." : "Tell Nikki anything — new tasks, answers, changes…"}
+          placeholder={liveOff ? "Live AI isn't configured — add an API key or use Demo mode." : "Tell Nikki anything… (press / to jump here)"}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -168,6 +191,12 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
           disabled={liveOff}
           aria-label="Message Nikki"
         />
+        {!liveOff && (
+          <MicButton
+            onText={(t) => setText((cur) => (cur ? `${cur.trimEnd()} ${t}` : t))}
+            onError={(msg) => actions.toast({ text: msg, tone: "error" })}
+          />
+        )}
         <button className="btn primary" disabled={!text.trim() || !!pending || liveOff}>
           {pending ? "…" : "Send"}
         </button>

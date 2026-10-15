@@ -153,6 +153,22 @@ function migrate(db: DB) {
   if (!cols.has("actual_minutes")) db.exec("ALTER TABLE tasks ADD COLUMN actual_minutes INTEGER");
   if (!cols.has("spent_minutes")) db.exec("ALTER TABLE tasks ADD COLUMN spent_minutes INTEGER NOT NULL DEFAULT 0");
   if (!cols.has("timer_started_at")) db.exec("ALTER TABLE tasks ADD COLUMN timer_started_at TEXT");
+  // One-time clean-up of context fields duplicated by an earlier version.
+  const row = db.prepare("SELECT data FROM profile WHERE id = 1").get() as { data: string } | undefined;
+  if (row) {
+    const data = JSON.parse(row.data);
+    let changed = false;
+    for (const f of MULTILINE_FIELDS) {
+      if (typeof data[f] === "string") {
+        const clean = dedupeLines(data[f]);
+        if (clean !== data[f]) {
+          data[f] = clean;
+          changed = true;
+        }
+      }
+    }
+    if (changed) db.prepare("UPDATE profile SET data = ? WHERE id = 1").run(JSON.stringify(data));
+  }
 }
 
 export const TABLES = [
@@ -207,7 +223,28 @@ export function getProfile(db: DB): Profile {
   return { ...emptyProfile(), ...JSON.parse(row.data), updatedAt: row.updated_at };
 }
 
-export function saveProfile(db: DB, profile: Profile) {
+/** Removes repeated lines (case/spacing-insensitive) from multi-line context fields. */
+export function dedupeLines(text: string) {
+  const seen = new Set<string>();
+  return text
+    .split(/\n/)
+    .filter((line) => {
+      const k = line.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.;]+$/, "");
+      if (!k) return true;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+const MULTILINE_FIELDS = ["projects", "goals", "commitments", "preferences"] as const;
+
+export function saveProfile(db: DB, input: Profile) {
+  const profile = { ...input };
+  for (const f of MULTILINE_FIELDS) profile[f] = dedupeLines(profile[f] ?? "");
   const { updatedAt: _ignored, ...data } = profile;
   const ts = nowIso();
   db.prepare(
@@ -452,6 +489,12 @@ export function listMeetings(db: DB, date: string): Meeting[] {
     .all(date) as Meeting[];
 }
 
+export function listMeetingsBetween(db: DB, from: string, to: string): Meeting[] {
+  return db
+    .prepare("SELECT id, date, title, start, end FROM meetings WHERE date >= ? AND date <= ? AND deleted = 0 ORDER BY date, start")
+    .all(from, to) as Meeting[];
+}
+
 export function createMeeting(db: DB, m: Omit<Meeting, "id"> & { id?: string }): Meeting {
   const meeting: Meeting = { id: m.id ?? newId("m"), date: m.date, title: m.title, start: m.start, end: m.end };
   db.prepare("INSERT INTO meetings (id, date, title, start, end, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
@@ -465,13 +508,13 @@ export function createMeeting(db: DB, m: Omit<Meeting, "id"> & { id?: string }):
   return meeting;
 }
 
-export function updateMeeting(db: DB, id: string, patch: Partial<Omit<Meeting, "id" | "date">>) {
+export function updateMeeting(db: DB, id: string, patch: Partial<Omit<Meeting, "id">>) {
   const cur = db.prepare("SELECT id, date, title, start, end FROM meetings WHERE id = ? AND deleted = 0").get(id) as
     | Meeting
     | undefined;
   if (!cur) return null;
   const next = { ...cur, ...patch };
-  db.prepare("UPDATE meetings SET title = ?, start = ?, end = ? WHERE id = ?").run(next.title, next.start, next.end, id);
+  db.prepare("UPDATE meetings SET title = ?, start = ?, end = ?, date = ? WHERE id = ?").run(next.title, next.start, next.end, next.date, id);
   return next;
 }
 

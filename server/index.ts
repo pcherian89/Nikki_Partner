@@ -404,14 +404,24 @@ app.post(
   }),
 );
 
-const MeetingBody = z.object({ title: z.string().trim().min(1).max(200), start: z.string(), end: z.string() });
+const MeetingBody = z.object({
+  title: z.string().trim().min(1).max(200),
+  start: z.string(),
+  end: z.string(),
+  date: z.string().refine(isValidDate, "Use YYYY-MM-DD").optional(),
+});
 
-/** After a meeting changes, rebuild today's plan's meeting blocks if the plan still fits. */
-function syncPlanMeetings(c: Ctx): string | null {
-  const today = localNow(c.tz).date;
-  const plan = currentPlan(c.db, today);
+function meetingById(c: Ctx, id: string) {
+  return c.db.prepare("SELECT id, date, title, start, end FROM meetings WHERE id = ? AND deleted = 0").get(id) as
+    | { id: string; date: string; title: string; start: string; end: string }
+    | undefined;
+}
+
+/** After a commitment changes, rebuild that day's plan meeting blocks if the plan still fits. */
+function syncPlanMeetings(c: Ctx, date: string): string | null {
+  const plan = currentPlan(c.db, date);
   if (!plan) return null;
-  const meetings = listMeetings(c.db, today);
+  const meetings = listMeetings(c.db, date);
   const blocks = [
     ...plan.blocks.filter((b) => b.kind !== "meeting"),
     ...meetings.map((m) => ({ id: `b_${m.id}`, start: m.start, end: m.end, kind: "meeting" as const, taskId: null, meetingId: m.id, title: m.title })),
@@ -422,7 +432,7 @@ function syncPlanMeetings(c: Ctx): string | null {
     (c.db.prepare("SELECT id FROM tasks WHERE deleted = 0").all() as { id: string }[]).map((t) => [t.id, t as never]),
   );
   const errors = validatePlanDraft(draft, { meetings, tasks });
-  if (errors.length) return `Your meetings changed and today's plan no longer fits (${errors[0]}). Use “Update my plan” to rework it.`;
+  if (errors.length) return `That change clashes with the plan for ${date === localNow(c.tz).date ? "today" : date} (${errors[0]}). Ask Nikki to update the plan.`;
   savePlanVersion(c.db, draft, { expectedVersion: version, proposalId: null, source: "user-edit" });
   return null;
 }
@@ -432,11 +442,13 @@ app.post(
   h((req, res) => {
     const c = ctx(req);
     const body = parse(MeetingBody, req.body);
-    const date = localNow(c.tz).date;
+    const today = localNow(c.tz).date;
+    const date = body.date ?? today;
+    if (date < today) throw new UserFacingError("That date is in the past.");
     const errors = validateMeeting(body, listMeetings(c.db, date));
     if (errors.length) throw new UserFacingError(errors[0], 422, "invalid_meeting", errors);
-    createMeeting(c.db, { ...body, date });
-    const warning = syncPlanMeetings(c);
+    createMeeting(c.db, { title: body.title, start: body.start, end: body.end, date });
+    const warning = syncPlanMeetings(c, date);
     res.json({ state: state(req, c), warning });
   }),
 );
@@ -446,11 +458,14 @@ app.patch(
   h((req, res) => {
     const c = ctx(req);
     const body = parse(MeetingBody, req.body);
-    const date = localNow(c.tz).date;
-    const errors = validateMeeting(body, listMeetings(c.db, date), String(req.params.id));
+    const cur = meetingById(c, String(req.params.id));
+    if (!cur) throw new UserFacingError("Meeting not found.", 404, "not_found");
+    const date = body.date ?? cur.date;
+    if (date < localNow(c.tz).date) throw new UserFacingError("That date is in the past.");
+    const errors = validateMeeting(body, listMeetings(c.db, date), cur.id);
     if (errors.length) throw new UserFacingError(errors[0], 422, "invalid_meeting", errors);
-    if (!updateMeeting(c.db, String(req.params.id), body)) throw new UserFacingError("Meeting not found.", 404, "not_found");
-    const warning = syncPlanMeetings(c);
+    updateMeeting(c.db, cur.id, { title: body.title, start: body.start, end: body.end, date });
+    const warning = syncPlanMeetings(c, cur.date) ?? (date !== cur.date ? syncPlanMeetings(c, date) : null);
     res.json({ state: state(req, c), warning });
   }),
 );
@@ -459,8 +474,9 @@ app.delete(
   "/api/meetings/:id",
   h((req, res) => {
     const c = ctx(req);
+    const cur = meetingById(c, String(req.params.id));
     deleteMeeting(c.db, String(req.params.id));
-    const warning = syncPlanMeetings(c);
+    const warning = cur ? syncPlanMeetings(c, cur.date) : null;
     res.json({ state: state(req, c), warning });
   }),
 );
@@ -469,7 +485,10 @@ app.put(
   "/api/plan",
   h((req, res) => {
     const c = ctx(req);
-    const body = parse(z.object({ expectedVersion: z.number().int().min(0), plan: z.unknown() }), req.body);
+    const body = parse(
+      z.object({ expectedVersion: z.number().int().min(0), plan: z.unknown(), date: z.string().refine(isValidDate).optional() }),
+      req.body,
+    );
     editPlan(c.db, body, c.tz);
     res.json({ state: state(req, c) });
   }),

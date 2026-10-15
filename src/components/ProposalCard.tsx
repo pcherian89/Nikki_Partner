@@ -16,6 +16,8 @@ const FIELD_LABELS: Record<string, string> = {
   preferences: "Planning preferences",
 };
 
+const LIST_FIELDS = new Set(["projects", "goals", "commitments", "preferences"]);
+
 const CHANGE_LABELS: Record<string, string> = {
   update: "Update",
   complete: "Mark done",
@@ -86,10 +88,12 @@ export function ProposalCard({
   };
 
   const diff = useMemo(() => {
-    if (!draft || !state.plan) return null;
+    const isTomorrow = draft?.date === state.tomorrow.date;
+    const basePlan = isTomorrow ? state.tomorrow.plan : state.plan;
+    if (!draft || !basePlan) return null;
     const key = (b: PlanBlock) => b.taskId ?? `${b.kind}:${b.title}`;
-    const now = toMin(state.now);
-    const oldFuture = state.plan.blocks.filter((b) => b.kind !== "meeting" && toMin(b.end) > now);
+    const now = isTomorrow ? -1 : toMin(state.now);
+    const oldFuture = basePlan.blocks.filter((b) => b.kind !== "meeting" && toMin(b.end) > now);
     const newBlocks = draft.blocks.filter((b) => b.kind !== "meeting");
     const lines: { type: "add" | "remove" | "move"; text: string }[] = [];
     for (const n of newBlocks) {
@@ -103,7 +107,7 @@ export function ProposalCard({
       }
     }
     return lines;
-  }, [draft, state.plan, state.now]);
+  }, [draft, state.plan, state.tomorrow.plan, state.tomorrow.date, state.now]);
 
   const cap = draft ? capacity(draft) : null;
   const overBudget = cap && cap.work > draft!.workBudgetMinutes;
@@ -112,7 +116,15 @@ export function ProposalCard({
     <div className={`proposal card ${stale ? "is-stale" : ""}`}>
       <div className="proposal-head">
         <div>
-          <div className="eyebrow">{proposal.kind === "replan" ? "Proposed update" : draft ? "Proposed plan" : "Suggested changes"}</div>
+          <div className="eyebrow">
+            {proposal.kind === "replan"
+              ? "Proposed update"
+              : draft
+                ? draft.date === state.tomorrow.date
+                  ? `Proposed plan for tomorrow · ${state.tomorrow.weekday}`
+                  : "Proposed plan"
+                : "Suggested changes"}
+          </div>
           {draft && (
             <input
               className="outcome-input"
@@ -266,7 +278,25 @@ export function ProposalCard({
           {pendingSuggestions.map((s) => (
             <div key={s.id} className="suggestion">
               <div>
-                <strong>{FIELD_LABELS[s.field] ?? s.field}:</strong> {s.value}
+                {LIST_FIELDS.has(s.field) ? (
+                  <>
+                    <span className="muted small">Add to {FIELD_LABELS[s.field] ?? s.field}</span>
+                    <div className="suggest-value">+ {s.value}</div>
+                  </>
+                ) : (
+                  <>
+                    <span className="muted small">{FIELD_LABELS[s.field] ?? s.field}</span>
+                    <div className="suggest-value">
+                      {s.current ? (
+                        <>
+                          <span className="struck">{s.current}</span> → {s.value}
+                        </>
+                      ) : (
+                        s.value
+                      )}
+                    </div>
+                  </>
+                )}
                 <div className="muted small">{s.reason}</div>
               </div>
               <div className="row gap">
