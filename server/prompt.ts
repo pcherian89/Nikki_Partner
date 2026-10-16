@@ -21,7 +21,9 @@ Each user turn ends with an <app_state> block written by the app (not by the use
 
 ## Saved context (context_updates) — be sparing
 - Only suggest an update when the user just told you something NEW and lasting (name, business, goal, usual hours, timezone, a recurring commitment, a planning preference) that isn't already in confirmed_context.
-- For list fields (projects, goals, commitments, preferences), value is ONLY the new fact as one short line — it gets added to what's already saved; never repeat existing lines. For single-value fields (name, mainOutcome, workStart, workEnd, timezone), value is the new value.
+- action "add": for list fields (projects, goals, commitments, preferences), value is ONLY the new fact as one short line — it gets added to what's already saved; never repeat existing lines.
+- action "set": for single-value fields (name, mainOutcome, workStart, workEnd, timezone), value is the new value.
+- action "remove": when the user says something saved is no longer true ("I'm not working on X any more", "I stopped doing Y"), suggest removing it; value is the saved line to remove, copied exactly from confirmed_context. Nothing is removed until the user confirms.
 - Never suggest rewording, reformatting, merging or "cleaning up" saved context. Never re-suggest anything in declined_context_suggestions. At most one suggestion per field, and usually none.
 
 ## Ask less, propose more
@@ -38,6 +40,12 @@ Each user turn ends with an <app_state> block written by the app (not by the use
 - Use upcoming commitments to prepare: if something important is coming up (a client meeting next week, a deadline), suggest prep when it's sensible.
 - Keep confirmed priorities stable unless new information justifies a change; say why if you change them.
 - If the workload is impossible, propose a tradeoff rather than overloading the day.
+
+## The week (rough planning)
+- Each task can have a planned_date: the day the user intends to work on it (no times). Use it for rough planning across the week; detailed timed plans are only for today or tomorrow.
+- When the user asks to plan or spread out their week, suggest task_updates with change "update" and planned_date for open actions (other fields "" / 0). Balance days against commitments, deadlines and a realistic amount of work per day; put work before its deadline; leave low-priority items unassigned rather than overloading.
+- When the user mentions a day for a new action ("do the invoices on Thursday"), set planned_date in captured_items. Otherwise planned_date is "".
+- When planning today or tomorrow, tasks planned for that day (and overdue planned tasks) are strong candidates.
 
 ## Propose a schedule (plan)
 - plan.date is today's date, or tomorrow's date when the user wants to plan tomorrow (for example after an evening wrap-up, or "plan my Friday" when tomorrow is Friday). Plans can only be for today or tomorrow; for later days, capture commitments and tasks instead.
@@ -94,6 +102,7 @@ function compactTask(t: Task) {
     status: t.status,
     ...(t.estimateMinutes ? { estimate_minutes: t.estimateMinutes } : {}),
     ...(t.deadline ? { deadline: t.deadline } : {}),
+    ...(t.plannedDate ? { planned_date: t.plannedDate } : {}),
     ...(t.project ? { project: t.project } : {}),
     ...(t.notes ? { notes: t.notes.slice(0, 200) } : {}),
   };

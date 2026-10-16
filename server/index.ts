@@ -261,6 +261,7 @@ const TaskFields = z.object({
   status: z.enum(["open", "waiting", "blocked", "done"]),
   estimateMinutes: z.number().int().positive().max(24 * 60).nullable(),
   deadline: z.string().refine(isValidDate, "Use YYYY-MM-DD").nullable(),
+  plannedDate: z.string().refine(isValidDate, "Use YYYY-MM-DD").nullable(),
   project: z.string().max(200).nullable(),
   actualMinutes: z.number().int().positive().max(24 * 60).nullable(),
 });

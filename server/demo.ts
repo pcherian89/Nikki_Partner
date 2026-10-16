@@ -217,6 +217,7 @@ export function demoRespond(input: DemoInput): DemoResult {
       notes: null,
       estimate_minutes: i.kind === "action" ? estimateFor(i.title) : null,
       deadline: null,
+      planned_date: null,
       project: null,
       duplicate_of: null,
     }));
@@ -226,7 +227,7 @@ export function demoRespond(input: DemoInput): DemoResult {
 
   const nameMatch = text.match(/\bmy name is ([A-Z][a-z]+)/);
   if (nameMatch && nameMatch[1] !== input.profile.name) {
-    res.context_updates.push({ field: "name", value: nameMatch[1], reason: "You told me your name." });
+    res.context_updates.push({ action: "set", field: "name", value: nameMatch[1], reason: "You told me your name." });
   }
 
   if (!items.length && !hours && !meeting) {

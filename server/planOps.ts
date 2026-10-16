@@ -248,13 +248,17 @@ export function discardProposal(db: DB, id: string) {
   if (p.status === "pending") setProposalStatus(db, id, "discarded");
 }
 
-function applyTaskChange(db: DB, c: { taskId: string; change: string; title: string | null; estimateMinutes: number | null; deadline: string | null; notes: string | null }) {
+function applyTaskChange(
+  db: DB,
+  c: { taskId: string; change: string; title: string | null; estimateMinutes: number | null; deadline: string | null; plannedDate?: string | null; notes: string | null },
+) {
   switch (c.change) {
     case "update": {
       const patch: Partial<Task> = {};
       if (c.title) patch.title = c.title;
       if (c.estimateMinutes) patch.estimateMinutes = c.estimateMinutes;
       if (c.deadline) patch.deadline = c.deadline;
+      if (c.plannedDate) patch.plannedDate = c.plannedDate;
       if (c.notes) patch.notes = c.notes;
       updateTask(db, c.taskId, patch);
       break;
@@ -318,17 +322,27 @@ export function applyContextSuggestion(db: DB, proposalId: string, suggestionId:
   if (s.status !== "pending") return;
   if (action === "save") {
     const v = (value ?? s.value).trim();
-    if ((s.field === "workStart" || s.field === "workEnd") && !isValidTime(v)) throw new UserFacingError("Use HH:MM for working hours.");
-    if (s.field === "timezone" && !isValidTimeZone(v)) throw new UserFacingError(`"${v}" isn't a recognised timezone.`);
+    if (s.action !== "remove" && (s.field === "workStart" || s.field === "workEnd") && !isValidTime(v)) throw new UserFacingError("Use HH:MM for working hours.");
+    if (s.action !== "remove" && s.field === "timezone" && !isValidTimeZone(v)) throw new UserFacingError(`"${v}" isn't a recognised timezone.`);
     const profile = getProfile(db);
     const field = s.field as (typeof CONTEXT_FIELDS)[number];
-    // List fields: add the new line (existing lines are never removed). Single values: replace.
     const cur = (profile[field] ?? "").trim();
-    profile[field] = LIST_FIELDS.has(field) && cur ? `${cur}\n${v}` : v;
+    if (s.action === "remove") {
+      // Remove exactly the line the user saw.
+      profile[field] = LIST_FIELDS.has(field)
+        ? cur
+            .split("\n")
+            .filter((l) => l.trim() !== s.value.trim())
+            .join("\n")
+        : "";
+    } else {
+      // List fields: add the new line (existing lines are kept). Single values: replace.
+      profile[field] = LIST_FIELDS.has(field) && cur ? `${cur}\n${v}` : v;
+    }
     saveProfile(db, profile);
   }
   s.status = action === "save" ? "saved" : "dismissed";
-  recordDecision(db, s.field, s.value, s.status);
+  recordDecision(db, s.field, s.action === "remove" ? `remove:${s.value}` : s.value, s.status);
   // A card that only held suggestions is finished once every suggestion is answered.
   if (!p.plan && !p.taskChanges.length && p.contextSuggestions.every((c) => c.status !== "pending")) p.status = "confirmed";
   saveProposal(db, p);

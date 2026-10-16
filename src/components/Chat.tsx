@@ -180,7 +180,7 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
           ref={inputRef}
           rows={2}
           value={text}
-          placeholder={liveOff ? "Live AI isn't configured — add an API key or use Demo mode." : "Tell Nikki anything… (press / to jump here)"}
+          placeholder={liveOff ? "Live AI isn't configured — add an API key or use Demo mode." : "Tell Nikki anything…"}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {

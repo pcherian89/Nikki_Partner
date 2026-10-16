@@ -118,10 +118,12 @@ Ask me when you want to do this and I'll walk you through one host step by step.
 
 ### Today, tomorrow and what's coming up
 
-- **Today / Tomorrow switch** at the top of the plan. Ask Nikki to "plan tomorrow", for example after your evening wrap-up. Tomorrow's plan is proposed, edited and confirmed the same way as today's, and becomes today's plan the next morning.
-- **Commitments on any date**: tell Nikki "client review next Monday 3–4pm" and it's saved for that date. **Coming up** lists the next weeks' commitments, plus deadlines and anything overdue. You can also add commitments there by hand.
+- **Today / Tomorrow / Week switch** at the top of the plan. Ask Nikki to "plan tomorrow", for example after your evening wrap-up. Tomorrow's plan is proposed, edited and confirmed the same way as today's, and becomes today's plan the next morning.
+- **Commitments on any date**: tell Nikki "client review next Monday 3–4pm" and it's saved for that date.
+- **Week view**: the next 7 days, each with its plan, meetings, deadlines and the tasks you've planned for that day. Exact times are only set for today and tomorrow. Assign unscheduled tasks to a day yourself, or click "Plan my week with Nikki" to have her suggest days for you to confirm. A "Later" list shows events and deadlines up to 30 days ahead.
 - **Daily brief on Home**: your focus, what's next, progress on today's planned work, and what's coming up.
-- **Quick replies**: tap-to-send answers under Nikki's latest message. **Voice**: use the mic button to talk instead of type (Chrome, Edge and Safari). Press **/** to jump to the message box.
+- **Quick replies**: tap-to-send answers under Nikki's latest message. **Voice**: click the mic, speak, and your words are typed into the message box (Chrome, Edge and Safari).
+- **My context as items**: each project, goal, commitment and preference is its own item. Click an item to edit it, or click × to delete it (with Undo). Nikki can suggest adding or removing items, for example "I'm not working on X any more", but nothing changes until you confirm.
 - **Saved context stays clean**: for list fields (projects, goals, commitments, preferences), Nikki only *adds* new lines, so nothing is ever removed. Single values (name, hours, timezone) show a before → after. Suggestions you've saved or dismissed don't come back, and duplicate lines are removed automatically.
 
 ### Daily rhythm, task help and learning

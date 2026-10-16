@@ -28,7 +28,7 @@ export const RESPONSE_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["ref", "kind", "title", "notes", "estimate_minutes", "deadline", "project", "duplicate_of"],
+        required: ["ref", "kind", "title", "notes", "estimate_minutes", "deadline", "planned_date", "project", "duplicate_of"],
         properties: {
           ref: str,
           kind: { type: "string", enum: ["action", "idea", "reference"] },
@@ -36,6 +36,7 @@ export const RESPONSE_JSON_SCHEMA = {
           notes: str,
           estimate_minutes: int,
           deadline: str,
+          planned_date: str,
           project: str,
           duplicate_of: str,
         },
@@ -46,13 +47,14 @@ export const RESPONSE_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["task_id", "change", "title", "estimate_minutes", "deadline", "notes", "reason"],
+        required: ["task_id", "change", "title", "estimate_minutes", "deadline", "planned_date", "notes", "reason"],
         properties: {
           task_id: str,
           change: { type: "string", enum: ["update", "complete", "waiting", "blocked", "reopen", "delete"] },
           title: str,
           estimate_minutes: int,
           deadline: str,
+          planned_date: str,
           notes: str,
           reason: str,
         },
@@ -72,8 +74,13 @@ export const RESPONSE_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["field", "value", "reason"],
-        properties: { field: { type: "string", enum: [...CONTEXT_FIELDS] }, value: str, reason: str },
+        required: ["action", "field", "value", "reason"],
+        properties: {
+          action: { type: "string", enum: ["add", "remove", "set"] },
+          field: { type: "string", enum: [...CONTEXT_FIELDS] },
+          value: str,
+          reason: str,
+        },
       },
     },
     plan: {
@@ -134,6 +141,7 @@ export const ModelResponse = z.object({
       notes: optStr,
       estimate_minutes: optMinutes,
       deadline: optStr,
+      planned_date: optStr.optional().default(null),
       project: optStr,
       duplicate_of: optStr,
     }),
@@ -145,12 +153,20 @@ export const ModelResponse = z.object({
       title: optStr,
       estimate_minutes: optMinutes,
       deadline: optStr,
+      planned_date: optStr.optional().default(null),
       notes: optStr,
       reason: z.string(),
     }),
   ),
   meetings: z.array(z.object({ date: optStr.optional().default(null), title: z.string().min(1), start: z.string(), end: z.string() })),
-  context_updates: z.array(z.object({ field: z.enum(CONTEXT_FIELDS), value: z.string(), reason: z.string() })),
+  context_updates: z.array(
+    z.object({
+      action: z.enum(["add", "remove", "set"]).optional().default("add"),
+      field: z.enum(CONTEXT_FIELDS),
+      value: z.string(),
+      reason: z.string(),
+    }),
+  ),
   availability: z
     .object({
       window_start: z.string().nullable(),

@@ -5,6 +5,7 @@ import type { AppActions } from "../App";
 import { ProposalCard } from "./ProposalCard";
 import { ActualTime, doneTodayTasks, MorningCheckIn, WrappedUpNote, WrapUpPanel } from "./DayRhythm";
 import { StepList, TaskToolButtons } from "./TaskTools";
+import { isWeekProposal, Week } from "./Week";
 import { capacity, draftOf, fmtDate, fmtDuration, fmtRange, fmtTime, fromMin, taskById, toMin } from "../util";
 
 type Mode = "schedule" | "checklist";
@@ -39,8 +40,12 @@ export function useCompletion(state: AppState, actions: AppActions) {
 }
 
 export function Today({ state, actions, busy }: { state: AppState; actions: AppActions; busy: boolean }) {
-  const [day, setDay] = useState<"today" | "tomorrow">("today");
-  const proposalDay = state.proposal?.status === "pending" && state.proposal.date === state.tomorrow.date ? "tomorrow" : "today";
+  const [day, setDay] = useState<"today" | "tomorrow" | "week">("today");
+  const proposalDay: "today" | "tomorrow" | "week" = isWeekProposal(state.proposal)
+    ? "week"
+    : state.proposal?.status === "pending" && state.proposal.date === state.tomorrow.date
+      ? "tomorrow"
+      : "today";
   // Jump to the day a new proposal is for.
   useEffect(() => {
     if (state.proposal?.status === "pending") setDay(proposalDay);
@@ -58,15 +63,20 @@ export function Today({ state, actions, busy }: { state: AppState; actions: AppA
             Tomorrow <span className="muted">· {state.tomorrow.weekday.slice(0, 3)}</span>
             {proposalDay === "tomorrow" && <span className="dot" aria-label="proposal waiting" />}
           </button>
+          <button role="tab" aria-selected={day === "week"} className={day === "week" ? "active" : ""} onClick={() => setDay("week")}>
+            Week
+            {proposalDay === "week" && <span className="dot" aria-label="proposal waiting" />}
+          </button>
         </div>
         {day === "today" && doneCount && doneCount.total > 0 && <ProgressRing done={doneCount.done} total={doneCount.total} />}
       </div>
       {day === "today" ? (
         <TodayBody state={state} actions={actions} busy={busy} />
-      ) : (
+      ) : day === "tomorrow" ? (
         <TomorrowBody state={state} actions={actions} busy={busy} />
+      ) : (
+        <Week state={state} actions={actions} busy={busy} onOpenDay={setDay} />
       )}
-      <ComingUp state={state} actions={actions} />
     </div>
   );
 }
@@ -154,7 +164,7 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
         </div>
       )}
 
-      {state.proposal && state.proposal.date !== state.tomorrow.date && (
+      {state.proposal && state.proposal.date !== state.tomorrow.date && !isWeekProposal(state.proposal) && (
         <ProposalCard state={state} proposal={state.proposal} actions={actions} onShowPlan={() => window.scrollTo({ top: 0, behavior: "smooth" })} />
       )}
 
@@ -253,100 +263,6 @@ function TomorrowBody({ state, actions, busy }: { state: AppState; actions: AppA
       )}
       <Meetings state={state} actions={actions} date={t.date} meetings={t.meetings} label="tomorrow" />
     </>
-  );
-}
-
-function ComingUp({ state, actions }: { state: AppState; actions: AppActions }) {
-  const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ title: "", date: "", start: "", end: "" });
-  const horizon = (() => {
-    const d = new Date(`${state.today}T12:00:00Z`);
-    d.setUTCDate(d.getUTCDate() + 14);
-    return d.toISOString().slice(0, 10);
-  })();
-  const later = state.upcoming.filter((m) => m.date > state.tomorrow.date);
-  const deadlines = state.tasks
-    .filter((t) => t.deadline && t.status !== "done" && t.deadline <= horizon)
-    .sort((a, b) => (a.deadline ?? "").localeCompare(b.deadline ?? ""));
-  type Item = { date: string; key: string; label: string; kind: "event" | "deadline"; time?: string };
-  const items: Item[] = (
-    [
-      ...later.map((m) => ({ date: m.date, key: m.id, label: m.title, kind: "event" as const, time: fmtRange(m.start, m.end) })),
-      ...deadlines.map((t) => ({ date: t.deadline!, key: t.id, label: t.title, kind: "deadline" as const })),
-    ] as Item[]
-  ).sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? "").localeCompare(b.time ?? ""));
-  const groups = new Map<string, Item[]>();
-  for (const i of items) groups.set(i.date, [...(groups.get(i.date) ?? []), i]);
-
-  const submit = async () => {
-    const ok = await actions.mutate("POST", "/api/meetings", form);
-    if (ok) {
-      setAdding(false);
-      setForm({ title: "", date: "", start: "", end: "" });
-    }
-  };
-
-  const dayLabel = (d: string) =>
-    d < state.today ? `Overdue · ${fmtDate(d)}` : d === state.today ? "Today" : d === state.tomorrow.date ? "Tomorrow" : fmtDate(d);
-
-  return (
-    <div className="card coming-up">
-      <div className="row between center-y">
-        <h3 className="h3">Coming up</h3>
-        {!adding && (
-          <button className="btn small ghost" onClick={() => setAdding(true)}>
-            + Add
-          </button>
-        )}
-      </div>
-      {!items.length && !adding && (
-        <p className="muted small">Nothing scheduled beyond tomorrow. Tell Nikki about meetings or deadlines on any date, or add one here.</p>
-      )}
-      <div className="agenda">
-        {[...groups.entries()].map(([date, list]) => (
-          <div key={date} className={`agenda-day ${date < state.today ? "overdue" : ""}`}>
-            <div className="agenda-date">{dayLabel(date)}</div>
-            <ul className="plain-list compact">
-              {list.map((i) => (
-                <li key={i.key} className={`agenda-item ${i.kind}`}>
-                  <span className="agenda-dot" aria-hidden />
-                  <span>
-                    {i.time && <span className="muted small">{i.time} · </span>}
-                    {i.label}
-                    {i.kind === "deadline" && <span className="tag warn">Due</span>}
-                  </span>
-                  {i.kind === "event" && (
-                    <button className="icon-btn small-x" aria-label={`Delete ${i.label}`} onClick={() => confirm(`Delete “${i.label}”?`) && actions.mutate("DELETE", `/api/meetings/${i.key}`)}>
-                      ×
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-      {adding && (
-        <form
-          className="meeting-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
-          <input placeholder="What is it?" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} aria-label="Title" />
-          <input type="date" min={state.today} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} aria-label="Date" />
-          <input type="time" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} aria-label="Start" />
-          <input type="time" value={form.end} onChange={(e) => setForm({ ...form, end: e.target.value })} aria-label="End" />
-          <button className="btn small primary" disabled={!form.title || !form.date || !form.start || !form.end}>
-            Add
-          </button>
-          <button type="button" className="btn small ghost" onClick={() => setAdding(false)}>
-            Cancel
-          </button>
-        </form>
-      )}
-    </div>
   );
 }
 

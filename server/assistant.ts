@@ -115,6 +115,7 @@ export function resolveResponse(
       status: "open",
       estimateMinutes: c.estimate_minutes,
       deadline,
+      plannedDate: c.planned_date && isValidDate(c.planned_date) && c.planned_date >= ctx.date ? c.planned_date : null,
       project: c.project,
       createdAt: ts,
       updatedAt: ts,
@@ -159,6 +160,7 @@ export function resolveResponse(
       title: u.title,
       estimateMinutes: u.estimate_minutes,
       deadline: u.deadline && isValidDate(u.deadline) ? u.deadline : null,
+      plannedDate: u.planned_date && isValidDate(u.planned_date) && u.planned_date >= ctx.date ? u.planned_date : null,
       notes: u.notes,
       reason: u.reason,
     });
@@ -167,7 +169,7 @@ export function resolveResponse(
   const contextSuggestions: ContextSuggestion[] = resp.context_updates
     .filter((c) => c.value.trim())
     .filter((c) => !["workStart", "workEnd"].includes(c.field) || isValidTime(c.value))
-    .map((c) => ({ id: newId("cs"), field: c.field, value: c.value.trim(), reason: c.reason, status: "pending" }));
+    .map((c) => ({ id: newId("cs"), field: c.field, action: c.action, value: c.value.trim(), reason: c.reason, status: "pending" }));
 
   let draft: PlanDraft | null = null;
   let planErrors: string[] = [];

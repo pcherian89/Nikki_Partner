@@ -1960,3 +1960,147 @@ details summary {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- v4: context cards, week ---------- */
+.context-lists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.list-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ctx-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 2px 4px 2px 0;
+  animation: rise 0.2s ease-out both;
+}
+.ctx-text {
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--text);
+  padding: 8px 12px;
+  cursor: text;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.ctx-x {
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  opacity: 0.6;
+}
+.ctx-item:hover .ctx-x {
+  opacity: 1;
+}
+.ctx-edit,
+.ctx-add {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+}
+.ctx-edit {
+  padding: 4px;
+}
+.ctx-add input {
+  border-style: dashed;
+}
+.week {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.week-day {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+.week-day.is-today {
+  border-color: var(--accent-line);
+}
+.week-date {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.week-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.week-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+.week-item > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.week-item.deadline .agenda-dot {
+  background: var(--warn);
+}
+.week-item.task {
+  gap: 8px;
+}
+.week-plan {
+  align-self: flex-start;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 12px 4px 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.week-free {
+  padding: 2px 0;
+}
+.unscheduled-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.add-event {
+  align-self: flex-start;
+}
+@media (max-width: 900px) {
+  .context-lists {
+    grid-template-columns: 1fr;
+  }
+  .week-day {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .week-date {
+    flex-direction: row;
+    gap: 10px;
+    align-items: baseline;
+  }
+}

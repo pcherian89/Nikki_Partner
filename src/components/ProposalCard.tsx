@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AppState, PlanBlock, PlanDraft, Proposal } from "../../shared/types";
 import { api, ApiError } from "../api";
 import type { AppActions } from "../App";
-import { capacity, fmtDuration, fmtRange, taskById, toMin } from "../util";
+import { capacity, fmtDate, fmtDuration, fmtRange, taskById, toMin } from "../util";
 
 const FIELD_LABELS: Record<string, string> = {
   name: "Name",
@@ -265,6 +265,7 @@ export function ProposalCard({
                 <strong>{CHANGE_LABELS[c.change]}</strong>: {tasks.get(c.taskId)?.title ?? c.taskId}
                 {c.title ? ` → “${c.title}”` : ""}
                 {c.estimateMinutes ? ` (${fmtDuration(c.estimateMinutes)})` : ""}
+                {c.plannedDate ? ` → do on ${fmtDate(c.plannedDate)}` : ""}
                 <span className="muted"> — {c.reason}</span>
               </span>
             </label>
@@ -274,11 +275,18 @@ export function ProposalCard({
 
       {pendingSuggestions.length > 0 && (
         <div className="suggestions">
-          <div className="eyebrow">Save to My context?</div>
+          <div className="eyebrow">Update My context?</div>
           {pendingSuggestions.map((s) => (
             <div key={s.id} className="suggestion">
               <div>
-                {LIST_FIELDS.has(s.field) ? (
+                {s.action === "remove" ? (
+                  <>
+                    <span className="muted small">Remove from {FIELD_LABELS[s.field] ?? s.field}</span>
+                    <div className="suggest-value">
+                      <span className="struck">{s.value}</span>
+                    </div>
+                  </>
+                ) : LIST_FIELDS.has(s.field) ? (
                   <>
                     <span className="muted small">Add to {FIELD_LABELS[s.field] ?? s.field}</span>
                     <div className="suggest-value">+ {s.value}</div>
@@ -301,10 +309,10 @@ export function ProposalCard({
               </div>
               <div className="row gap">
                 <button className="btn small" onClick={() => actions.mutate("POST", `/api/proposals/${proposal.id}/suggestions/${s.id}`, { action: "save" })}>
-                  Save
+                  {s.action === "remove" ? "Remove" : "Save"}
                 </button>
                 <button className="btn small ghost" onClick={() => actions.mutate("POST", `/api/proposals/${proposal.id}/suggestions/${s.id}`, { action: "dismiss" })}>
-                  Not now
+                  {s.action === "remove" ? "Keep" : "Not now"}
                 </button>
               </div>
             </div>

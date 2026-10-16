@@ -14,6 +14,8 @@ export interface Task {
   estimateMinutes: number | null;
   /** Only set when the user stated a real deadline. Never invented. */
   deadline: string | null;
+  /** The day the user intends to work on it (rough weekly planning). */
+  plannedDate: string | null;
   project: string | null;
   createdAt: string;
   updatedAt: string;
@@ -141,6 +143,7 @@ export interface TaskChange {
   title: string | null;
   estimateMinutes: number | null;
   deadline: string | null;
+  plannedDate?: string | null;
   notes: string | null;
   reason: string;
 }
@@ -148,6 +151,8 @@ export interface TaskChange {
 export interface ContextSuggestion {
   id: string;
   field: ContextField;
+  /** add: append a line to a list field; remove: delete that line; set: replace a single value. */
+  action?: "add" | "remove" | "set";
   value: string;
   reason: string;
   status: "pending" | "saved" | "dismissed";

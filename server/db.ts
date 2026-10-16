@@ -153,6 +153,7 @@ function migrate(db: DB) {
   if (!cols.has("actual_minutes")) db.exec("ALTER TABLE tasks ADD COLUMN actual_minutes INTEGER");
   if (!cols.has("spent_minutes")) db.exec("ALTER TABLE tasks ADD COLUMN spent_minutes INTEGER NOT NULL DEFAULT 0");
   if (!cols.has("timer_started_at")) db.exec("ALTER TABLE tasks ADD COLUMN timer_started_at TEXT");
+  if (!cols.has("planned_date")) db.exec("ALTER TABLE tasks ADD COLUMN planned_date TEXT");
   // One-time clean-up of context fields duplicated by an earlier version.
   const row = db.prepare("SELECT data FROM profile WHERE id = 1").get() as { data: string } | undefined;
   if (row) {
@@ -271,6 +272,7 @@ interface TaskRow {
   actual_minutes: number | null;
   spent_minutes: number;
   timer_started_at: string | null;
+  planned_date: string | null;
 }
 
 const rowToTask = (r: TaskRow, steps: TaskStep[] = []): Task => ({
@@ -281,6 +283,7 @@ const rowToTask = (r: TaskRow, steps: TaskStep[] = []): Task => ({
   status: r.status,
   estimateMinutes: r.estimate_minutes,
   deadline: r.deadline,
+  plannedDate: r.planned_date ?? null,
   project: r.project,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
@@ -419,6 +422,7 @@ export function createTask(
     status: t.status ?? "open",
     estimateMinutes: t.estimateMinutes ?? null,
     deadline: t.deadline ?? null,
+    plannedDate: t.plannedDate ?? null,
     project: t.project ?? null,
     createdAt: ts,
     updatedAt: ts,
@@ -431,9 +435,9 @@ export function createTask(
   };
   if (t.createdAt) task.createdAt = task.updatedAt = t.createdAt;
   db.prepare(
-    `INSERT INTO tasks (id, title, notes, type, status, estimate_minutes, deadline, project, created_at, updated_at, completed_at, source)
-     VALUES (@id, @title, @notes, @type, @status, @estimateMinutes, @deadline, @project, @createdAt, @updatedAt, @completedAt, @source)`,
-  ).run(task);
+    `INSERT INTO tasks (id, title, notes, type, status, estimate_minutes, deadline, planned_date, project, created_at, updated_at, completed_at, source)
+     VALUES (@id, @title, @notes, @type, @status, @estimateMinutes, @deadline, @plannedDate, @project, @createdAt, @updatedAt, @completedAt, @source)`,
+  ).run({ ...task, steps: undefined, actualMinutes: undefined, spentMinutes: undefined, timerStartedAt: undefined });
   return task;
 }
 
@@ -454,7 +458,7 @@ export function updateTask(db: DB, id: string, patch: Partial<Task>): Task | nul
   }
   db.prepare(
     `UPDATE tasks SET title=@title, notes=@notes, type=@type, status=@status, estimate_minutes=@estimateMinutes,
-     deadline=@deadline, project=@project, updated_at=@updatedAt, completed_at=@completedAt,
+     deadline=@deadline, planned_date=@plannedDate, project=@project, updated_at=@updatedAt, completed_at=@completedAt,
      actual_minutes=@actualMinutes, spent_minutes=@spentMinutes, timer_started_at=@timerStartedAt WHERE id=@id`,
   ).run({ ...next, steps: undefined });
   return next;

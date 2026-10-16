@@ -14,7 +14,8 @@ const toForm = (p: Profile): Form => {
 export function ContextView({ state, actions }: { state: AppState; actions: AppActions }) {
   const [form, setForm] = useState<Form>(toForm(state.profile));
   const [deleteText, setDeleteText] = useState("");
-  const dirty = JSON.stringify(form) !== JSON.stringify(toForm(state.profile));
+  const SINGLE = ["name", "mainOutcome", "workStart", "workEnd", "timezone"] as const;
+  const dirty = SINGLE.some((k) => (form[k] ?? "") !== (state.profile[k] ?? ""));
   useEffect(() => setForm(toForm(state.profile)), [state.profile]);
 
   const zones = useMemo(() => {
@@ -59,11 +60,19 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
         suggest updates from your conversations, but nothing is saved here without your confirmation.
       </div>
 
+      <div className="context-lists">
+        <ListField state={state} actions={actions} field="projects" title="Businesses & projects" placeholder="e.g. Revivo IQ — AI consulting" />
+        <ListField state={state} actions={actions} field="goals" title="Goals" placeholder="e.g. Land two new clients this quarter" />
+        <ListField state={state} actions={actions} field="commitments" title="Regular commitments" placeholder="e.g. School pickup 3pm on weekdays" />
+        <ListField state={state} actions={actions} field="preferences" title="Planning preferences" placeholder="e.g. Deep work in the morning" />
+      </div>
+
       <form
         className="card context-form"
         onSubmit={(e) => {
           e.preventDefault();
-          actions.mutate("PUT", "/api/profile", form).then((ok) => ok && actions.toast({ text: "Context saved." }));
+          const patch = Object.fromEntries(SINGLE.map((k) => [k, form[k]]));
+          actions.mutate("PUT", "/api/profile", patch).then((ok) => ok && actions.toast({ text: "Saved." }));
         }}
       >
         <label className="field">
@@ -71,20 +80,8 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
           <input value={form.name} onChange={set("name")} placeholder="What should Nikki call you?" />
         </label>
         <label className="field">
-          <span>Businesses and projects</span>
-          <textarea rows={3} value={form.projects} onChange={set("projects")} placeholder="One per line — e.g. Revivo IQ (consulting), beta app launch" />
-        </label>
-        <label className="field">
-          <span>Current goals</span>
-          <textarea rows={3} value={form.goals} onChange={set("goals")} placeholder="e.g. Land two new clients this quarter" />
-        </label>
-        <label className="field">
           <span>Main outcome right now</span>
           <input value={form.mainOutcome} onChange={set("mainOutcome")} placeholder="The one result that matters most this season" />
-        </label>
-        <label className="field">
-          <span>Important commitments</span>
-          <textarea rows={2} value={form.commitments} onChange={set("commitments")} placeholder="e.g. School pickup 3pm weekdays; Monday team call" />
         </label>
         <div className="grid-3">
           <label className="field">
@@ -107,13 +104,9 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
             </select>
           </label>
         </div>
-        <label className="field">
-          <span>Planning preferences</span>
-          <textarea rows={2} value={form.preferences} onChange={set("preferences")} placeholder="e.g. Deep work in the morning; no more than 3 priorities; 10-minute breaks" />
-        </label>
         <div className="row gap center-y">
           <button className="btn primary" disabled={!dirty}>
-            Save context
+            Save
           </button>
           {dirty && (
             <button type="button" className="btn ghost" onClick={() => setForm(toForm(state.profile))}>
@@ -219,6 +212,83 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
           Log out
         </button>
       )}
+    </div>
+  );
+}
+
+type ListKey = "projects" | "goals" | "commitments" | "preferences";
+
+/** A context list shown as removable, editable items. Every change saves immediately. */
+function ListField({ state, actions, field, title, placeholder }: { state: AppState; actions: AppActions; field: ListKey; title: string; placeholder: string }) {
+  const raw = state.profile[field] ?? "";
+  const items = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+  const [adding, setAdding] = useState("");
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
+
+  const save = (next: string[]) => actions.mutate("PUT", "/api/profile", { [field]: next.join("\n") });
+
+  const remove = async (i: number) => {
+    const before = raw;
+    const ok = await save(items.filter((_, j) => j !== i));
+    if (ok) actions.toast({ text: `Removed “${items[i]}”.`, action: { label: "Undo", run: () => actions.mutate("PUT", "/api/profile", { [field]: before }) } });
+  };
+
+  return (
+    <div className="card list-field">
+      <div className="row between center-y">
+        <h3 className="h3">{title}</h3>
+        <span className="muted small">{items.length || ""}</span>
+      </div>
+      <ul className="ctx-items">
+        {items.map((item, i) => (
+          <li key={`${i}-${item}`} className="ctx-item">
+            {editIdx === i ? (
+              <form
+                className="ctx-edit"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const v = editText.trim();
+                  if (v && (await save(items.map((x, j) => (j === i ? v : x))))) setEditIdx(null);
+                }}
+              >
+                <input value={editText} onChange={(e) => setEditText(e.target.value)} autoFocus aria-label={`Edit ${item}`} />
+                <button className="btn small primary">Save</button>
+                <button type="button" className="btn small ghost" onClick={() => setEditIdx(null)}>
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <>
+                <button
+                  className="ctx-text"
+                  title="Click to edit"
+                  onClick={() => {
+                    setEditIdx(i);
+                    setEditText(item);
+                  }}
+                >
+                  {item}
+                </button>
+                <button className="icon-btn ctx-x" aria-label={`Remove ${item}`} onClick={() => remove(i)}>
+                  ×
+                </button>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+      <form
+        className="ctx-add"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const v = adding.trim();
+          if (v && (await save([...items, v]))) setAdding("");
+        }}
+      >
+        <input value={adding} onChange={(e) => setAdding(e.target.value)} placeholder={items.length ? "Add another…" : placeholder} aria-label={`Add to ${title}`} />
+        {adding.trim() && <button className="btn small">Add</button>}
+      </form>
     </div>
   );
 }

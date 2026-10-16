@@ -60,11 +60,21 @@ export function filterSuggestions(db: DB, profile: Profile, suggestions: Context
     const current = (profile[s.field] ?? "").trim();
     const v = s.value.trim();
     if (!v) continue;
+    if (s.action === "remove") {
+      // Only offer removals of something actually saved; point at the exact saved line.
+      const lines = LIST_FIELDS.has(s.field) ? current.split("\n").filter((l) => l.trim()) : current ? [current] : [];
+      const nv = normText(v);
+      const line = lines.find((l) => normText(l) === nv) ?? lines.find((l) => normText(l).includes(nv) || nv.includes(normText(l)));
+      if (!line) continue;
+      if (decided.some((d) => d.field === s.field && normText(d.value) === normText(`remove:${line}`))) continue;
+      byField.set(`${s.field}:remove:${line}`, { ...s, value: line.trim(), current: current || undefined });
+      continue;
+    }
     if (normText(v) === normText(current)) continue;
     // List fields only ever get new lines added: skip anything already covered.
     if (LIST_FIELDS.has(s.field) && current && !addsSomething(current, v)) continue;
     if (decided.some((d) => d.field === s.field && normText(d.value) === normText(v))) continue;
-    byField.set(s.field, { ...s, current: current || undefined });
+    byField.set(s.field, { ...s, action: LIST_FIELDS.has(s.field) ? "add" : "set", current: current || undefined });
   }
   return [...byField.values()];
 }

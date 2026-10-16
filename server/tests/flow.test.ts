@@ -643,3 +643,51 @@ test("demo: 'plan tomorrow' proposes a plan dated tomorrow", async () => {
   assert.equal(r.json.state.proposal.date, "2026-10-06");
   assert.ok(r.json.state.proposal.plan.blocks.length > 0);
 });
+
+// ---------- v4: removable context, week planning ----------
+
+test("Nikki can suggest removing a context item; it's only removed when confirmed", async () => {
+  await api("PUT", "/api/profile", { projects: "Website launch\nSRTSU coaching" }, "personal");
+  const reply = (over: Record<string, unknown>) => ({ text: liveReply(over), model: "fake" });
+  let next = reply({ context_updates: [{ action: "remove", field: "projects", value: "website launch", reason: "You stopped." }] });
+  setProvider({ name: "fake", model: "fake", generate: async () => next });
+  const r = await send("I'm not working on the website any more", "personal");
+  const p = r.json.state.proposal;
+  assert.equal(p.contextSuggestions[0].action, "remove");
+  assert.equal(p.contextSuggestions[0].value, "Website launch", "points at the exact saved line");
+  assert.equal(r.json.state.profile.projects, "Website launch\nSRTSU coaching", "nothing removed yet");
+  const done = await api("POST", `/api/proposals/${p.id}/suggestions/${p.contextSuggestions[0].id}`, { action: "save" }, "personal");
+  assert.equal(done.json.state.profile.projects, "SRTSU coaching");
+  // Removing something that isn't saved is ignored
+  next = reply({ context_updates: [{ action: "remove", field: "goals", value: "Run a marathon", reason: "x" }] });
+  const r2 = await send("no more marathon", "personal");
+  assert.equal(r2.json.state.proposal, null);
+});
+
+test("week planning: tasks get a day via confirmed task changes or directly", async () => {
+  const a = (await api("POST", "/api/tasks", { title: "Invoices", estimateMinutes: 30 }, "personal")).json.task;
+  const b = (await api("POST", "/api/tasks", { title: "Pitch deck", estimateMinutes: 120 }, "personal")).json.task;
+  setProvider({
+    name: "fake",
+    model: "fake",
+    generate: async () => ({
+      text: liveReply({
+        task_updates: [
+          { task_id: a.id, change: "update", title: "", estimate_minutes: 0, deadline: "", planned_date: "2026-10-08", notes: "", reason: "Light day" },
+          { task_id: b.id, change: "update", title: "", estimate_minutes: 0, deadline: "", planned_date: "2026-10-01", notes: "", reason: "past date" },
+        ],
+      }),
+      model: "fake",
+    }),
+  });
+  const r = await send("Spread my tasks over the week", "personal");
+  const p = r.json.state.proposal;
+  assert.equal(p.taskChanges[0].plannedDate, "2026-10-08");
+  assert.equal(p.taskChanges[1].plannedDate, null, "past days are not allowed");
+  const c = await api("POST", `/api/proposals/${p.id}/confirm`, { acceptedTaskChangeIds: [p.taskChanges[0].id] }, "personal");
+  assert.equal(c.json.state.tasks.find((t: any) => t.id === a.id).plannedDate, "2026-10-08");
+  const d = await api("PATCH", `/api/tasks/${b.id}`, { plannedDate: "2026-10-07" }, "personal");
+  assert.equal(d.json.task.plannedDate, "2026-10-07");
+  const u = await api("PATCH", `/api/tasks/${b.id}`, { plannedDate: null }, "personal");
+  assert.equal(u.json.task.plannedDate, null);
+});
