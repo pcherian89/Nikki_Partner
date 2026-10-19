@@ -691,3 +691,21 @@ test("week planning: tasks get a day via confirmed task changes or directly", as
   const u = await api("PATCH", `/api/tasks/${b.id}`, { plannedDate: null }, "personal");
   assert.equal(u.json.task.plannedDate, null);
 });
+
+test("export -> import round-trip restores a workspace", async () => {
+  await api("PUT", "/api/profile", { name: "Pothen", projects: "Revivo IQ" }, "personal");
+  const t = (await api("POST", "/api/tasks", { title: "Ship it", estimateMinutes: 45 }, "personal")).json.task;
+  await api("PUT", `/api/tasks/${t.id}/steps`, { steps: [{ title: "Step one", minutes: 10 }] }, "personal");
+  await api("POST", "/api/meetings", { title: "Review", date: "2026-10-09", start: "10:00", end: "11:00" }, "personal");
+  const exported = (await api("GET", "/api/export", undefined, "personal")).json;
+  await api("DELETE", "/api/data", { confirm: "DELETE" }, "personal");
+  const bad = await api("POST", "/api/import", { confirm: "REPLACE", data: { hello: 1 } }, "personal");
+  assert.equal(bad.status, 400);
+  const r = await api("POST", "/api/import", { confirm: "REPLACE", data: exported }, "personal");
+  assert.equal(r.status, 200);
+  const st = r.json.state;
+  assert.equal(st.profile.name, "Pothen");
+  assert.equal(st.tasks[0].title, "Ship it");
+  assert.equal(st.tasks[0].steps[0].title, "Step one");
+  assert.equal(st.upcoming[0].title, "Review");
+});

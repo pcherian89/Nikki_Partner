@@ -181,11 +181,36 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
 
       <div className="card">
         <h2 className="h3">Your data{demo ? " (demo workspace)" : ""}</h2>
-        <p className="muted small">Download everything this workspace has stored as a JSON file, or delete it permanently.</p>
+        <p className="muted small">
+          Download everything this workspace has stored as a file, bring it into another copy of Nikki (for example from your Mac
+          to the hosted version), or delete it permanently.
+        </p>
         <div className="row gap wrap">
           <button className="btn" onClick={exportData}>
             Export my data
           </button>
+          <label className="btn ghost file-btn">
+            Import from a file…
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                let data: unknown;
+                try {
+                  data = JSON.parse(await file.text());
+                } catch {
+                  actions.toast({ text: "That file isn't a valid export.", tone: "error" });
+                  return;
+                }
+                if (!confirm("Import this file? It REPLACES everything currently in this workspace (tasks, plans, context, chat).")) return;
+                const ok = await actions.mutate("POST", "/api/import", { confirm: "REPLACE", data });
+                if (ok) actions.toast({ text: "Data imported." });
+              }}
+            />
+          </label>
         </div>
         <div className="danger-zone">
           <label className="field">

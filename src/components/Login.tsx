@@ -22,7 +22,7 @@ export function Login({ onDone }: { onDone: () => void }) {
   return (
     <div className="center-screen">
       <Avatar size={96} glow />
-      <h1 className="h2">Nikki Partner</h1>
+      <h1 className="h2">Nikki</h1>
       <form className="login card" onSubmit={submit}>
         <label className="field">
           <span>Password</span>

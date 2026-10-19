@@ -212,9 +212,9 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <button className="brand" onClick={() => setView("home")} title="Home" aria-label="Nikki Partner, go to Home">
+        <button className="brand" onClick={() => setView("home")} title="Home" aria-label="Nikki, go to Home">
           <Avatar size={30} />
-          <span className="brand-name">Nikki Partner</span>
+          <span className="brand-name">Nikki</span>
         </button>
         <nav className="tabs" aria-label="Views">
           {(

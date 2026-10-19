@@ -12,6 +12,8 @@ export const config = {
   demoDatabasePath: path.join(path.dirname(databasePath), "nikki-demo.db"),
   port: Number(process.env.PORT) || 3001,
   appPassword: process.env.APP_PASSWORD || "",
+  /** Set on hosted deployments (auto-detected on Railway): the app refuses to start without a strong password. */
+  publicDeployment: process.env.PUBLIC_DEPLOYMENT === "true" || !!process.env.RAILWAY_ENVIRONMENT,
   isProduction: process.env.NODE_ENV === "production",
 };
 

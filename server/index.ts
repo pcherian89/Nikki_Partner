@@ -34,6 +34,7 @@ import {
   deleteDraft,
 } from "./db.js";
 import { breakDown, helpMeStart } from "./helpers.js";
+import { importWorkspace } from "./importer.js";
 import { getProvider } from "./provider/index.js";
 import { ProviderError } from "./provider/types.js";
 import {
@@ -51,7 +52,11 @@ import { validateMeeting, validatePlanDraft } from "./validate.js";
 
 export const app = express();
 app.disable("x-powered-by");
-app.use(express.json({ limit: "256kb" }));
+// Hosts like Railway terminate HTTPS in front of the app; trust that so req.secure works.
+app.set("trust proxy", 1);
+const smallJson = express.json({ limit: "256kb" });
+// Data import gets its own, larger limit (see /api/import).
+app.use((req, res, next) => (req.path === "/api/import" ? next() : smallJson(req, res, next)));
 
 // ---------- optional password protection (required for public hosting) ----------
 
@@ -98,7 +103,7 @@ app.post("/api/auth/login", (req, res) => {
   loginAttempts.delete(ip);
   res.setHeader(
     "Set-Cookie",
-    `${SESSION_COOKIE}=${sessionToken()}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${60 * 60 * 24 * 30}${config.isProduction ? "; Secure" : ""}`,
+    `${SESSION_COOKIE}=${sessionToken()}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${60 * 60 * 24 * 30}${req.secure ? "; Secure" : ""}`,
   );
   res.json({ ok: true });
 });
@@ -515,7 +520,7 @@ app.get(
     const dump: Record<string, unknown> = {
       exportedAt: new Date().toISOString(),
       workspace: c.ws,
-      note: "Everything Nikki Partner has stored for this workspace. This data lives in the app's own database; it is sent to the model only as context for a request and is not used for model training.",
+      note: "Everything Nikki has stored for this workspace. This data lives in the app's own database; it is sent to the model only as context for a request and is not used for model training.",
     };
     for (const t of TABLES.filter((x) => x !== "requests")) {
       dump[t] = (c.db.prepare(`SELECT * FROM ${t}`).all() as Record<string, unknown>[]).map((r) => {
@@ -535,6 +540,17 @@ app.delete(
     parse(z.object({ confirm: z.literal("DELETE") }), req.body);
     wipe(c.db);
     c.db.exec("VACUUM");
+    res.json({ state: state(req, c) });
+  }),
+);
+
+app.post(
+  "/api/import",
+  express.json({ limit: "20mb" }),
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(z.object({ confirm: z.literal("REPLACE"), data: z.record(z.string(), z.unknown()) }), req.body);
+    importWorkspace(c.db, body.data);
     res.json({ state: state(req, c) });
   }),
 );
@@ -587,10 +603,17 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 // ---------- start ----------
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]).endsWith(path.join("server", "index.ts"));
+if (isMain && config.publicDeployment && config.appPassword.length < 10) {
+  console.error(
+    "Refusing to start: this is a hosted deployment, so APP_PASSWORD must be set to a strong password (at least 10 characters) to protect your data and API key.",
+  );
+  process.exit(1);
+}
+
 if (isMain) {
   for (const ws of ["personal", "demo"] as const) recoverRequests(getDb(ws));
   app.listen(config.port, () => {
-    console.log(`Nikki Partner server running on http://localhost:${config.port}`);
+    console.log(`Nikki is running on http://localhost:${config.port}`);
     console.log(`  Personal data: ${dbPath("personal")}`);
     console.log(`  Demo data:     ${dbPath("demo")}`);
     console.log(

@@ -1,4 +1,4 @@
-# Nikki Partner
+# Nikki
 
 A personal planning partner. You tell Nikki everything on your mind in your own words; she asks a few useful questions, recommends one main focus plus up to two supporting actions, proposes a realistic schedule around your fixed meetings, and updates the plan when you come back.
 
@@ -82,16 +82,23 @@ If something is wrong, the app shows the actual error, such as a rejected key, a
 
 The Claude Code session couldn't give you a live browser preview link. Use the screenshots above, or run it locally (section 1). That takes about two minutes.
 
-### Hosting it with a link later (not done yet)
+### Hosting it online (Railway)
 
-Nothing has been deployed and nothing has been purchased. When you're ready, the simplest suitable setup is a single small server with a **persistent volume** for the SQLite file, such as Railway, Render or Fly.io. Each of these can mount a disk. The essentials:
+The repository is ready for [Railway](https://railway.com). Railway gives the app a server that's always on, plus a **volume** (a persistent disk) so the SQLite database survives restarts and redeploys. Settings are in `railway.json`.
 
-- Set `APP_PASSWORD` to a long, random password. With it set, the app asks for the password before showing any data or calling Claude. This protects your personal data and your paid API key. **Never host it publicly without this.**
-- Set `DATABASE_PATH` to a path **on the persistent volume** (for example `/data/nikki.db`). Otherwise your data is wiped on every redeploy.
-- Set `ANTHROPIC_API_KEY` in the host's secret/environment settings, not in code.
-- Build command: `npm install && npm run build`. Start command: `npm start`. The host provides `PORT`.
+1. Sign in to Railway with GitHub. Create **New Project → Deploy from GitHub repo → Nikki_Partner**.
+2. Add a **Volume** to the service, mounted at `/data`.
+3. Under **Variables**, set:
+   - `DATABASE_PATH=/data/nikki.db`
+   - `ANTHROPIC_API_KEY=` your key
+   - `ANTHROPIC_MODEL=claude-opus-5-5`
+   - `APP_PASSWORD=` a long password, at least 10 characters
+4. Under **Settings → Networking**, click **Generate Domain** to get a `https://….up.railway.app` link.
+5. Open the link, log in with your password, then go to **My context → Import from a file** and import the export you downloaded from your Mac.
 
-Ask me when you want to do this and I'll walk you through one host step by step.
+Safety: on Railway (or anywhere `PUBLIC_DEPLOYMENT=true` is set), the app **refuses to start** without an `APP_PASSWORD` of at least 10 characters.
+
+To use your own domain later (for example `nikki.revivosporttech.com`), add it under **Settings → Networking → Custom Domain**, then add the CNAME record Railway shows you at your domain provider.
 
 ---
 
@@ -111,7 +118,7 @@ Ask me when you want to do this and I'll walk you through one host step by step.
 
 ### Views
 
-- **Home:** the full-body Nikki welcome screen. Reach it with the Home tab or by clicking the Nikki Partner logo. When you come back, it summarises where you are and lets you tell Nikki anything new.
+- **Home:** the full-body Nikki welcome screen. Reach it with the Home tab or by clicking the Nikki logo. When you come back, it summarises where you are and lets you tell Nikki anything new.
 - **Today:** conversation with Nikki beside today's plan. Shows the main outcome, an obvious "Now / Up next" item, schedule or checklist view, editable time blocks, fixed meetings, a time summary (available, planned work, breaks, buffer), collapsed "Not today", completed tasks with Undo, and **Update my plan**. Each work block has: Need more time (+15/+30), I'm blocked, Move out of today, Move/edit time.
 - **Everything:** active actions, waiting/blocked, parked ideas, reference notes, completed. You can add, edit, delete, change status, and deliberately promote an idea into an action.
 - **My context:** name, businesses/projects, goals, main outcome, commitments, working hours, timezone and preferences. All fields are optional and editable. This view also has the mode switch, data export, and data deletion.
