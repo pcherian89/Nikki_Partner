@@ -86,9 +86,13 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
                       <span className="muted small">{fmtRange(m.start, m.end)} · </span>
                       {m.title}
                     </span>
-                    <button className="icon-btn small-x" aria-label={`Delete ${m.title}`} onClick={() => confirm(`Delete “${m.title}”?`) && actions.mutate("DELETE", `/api/meetings/${m.id}`)}>
-                      ×
-                    </button>
+                    {m.source === "calendar" ? (
+                      <span className="tag subtle cal-tag">Calendar</span>
+                    ) : (
+                      <button className="icon-btn small-x" aria-label={`Delete ${m.title}`} onClick={() => confirm(`Delete “${m.title}”?`) && actions.mutate("DELETE", `/api/meetings/${m.id}`)}>
+                        ×
+                      </button>
+                    )}
                   </div>
                 ))}
                 {due.map((t) => (

@@ -99,6 +99,19 @@ export interface Meeting {
   title: string;
   start: string;
   end: string;
+  /** "calendar" = synced read-only from a linked calendar. */
+  source?: "manual" | "calendar";
+  feedId?: string | null;
+}
+
+export interface CalendarFeedInfo {
+  id: string;
+  name: string;
+  /** The private link is never sent back to the browser in full. */
+  urlHint: string;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  eventCount: number;
 }
 
 export type BlockKind = "focus" | "task" | "break" | "buffer" | "meeting";
@@ -222,6 +235,7 @@ export interface AppState {
   tomorrow: { date: string; weekday: string; plan: Plan | null; meetings: Meeting[] };
   /** Commitments after today (next 30 days). */
   upcoming: Meeting[];
+  calendars: CalendarFeedInfo[];
 }
 
 export interface ApiError {

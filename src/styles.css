@@ -2114,3 +2114,44 @@ details summary {
   opacity: 0;
   cursor: pointer;
 }
+.calendars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.calendar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.calendar-add {
+  display: flex;
+  gap: 8px;
+}
+.calendar-add select {
+  width: auto;
+}
+.howto {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-2);
+}
+.howto code {
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 6px;
+  margin-left: 4px;
+}
+.cal-tag {
+  margin-left: 8px;
+}
+@media (max-width: 900px) {
+  .calendar-add {
+    flex-wrap: wrap;
+  }
+}

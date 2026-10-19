@@ -117,6 +117,8 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
         </div>
       </form>
 
+      <Calendars state={state} actions={actions} />
+
       <div className="card">
         <h2 className="h3">What Nikki has learned about your pace</h2>
         {state.learning.factor ? (
@@ -314,6 +316,128 @@ function ListField({ state, actions, field, title, placeholder }: { state: AppSt
         <input value={adding} onChange={(e) => setAdding(e.target.value)} placeholder={items.length ? "Add another…" : placeholder} aria-label={`Add to ${title}`} />
         {adding.trim() && <button className="btn small">Add</button>}
       </form>
+    </div>
+  );
+}
+
+function timeAgo(iso: string) {
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
+}
+
+/** Read-only calendar links (Google / Apple iCloud .ics). */
+function Calendars({ state, actions }: { state: AppState; actions: AppActions }) {
+  const [name, setName] = useState("Google");
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const add = async () => {
+    setBusy("add");
+    const ok = await actions.mutate("POST", "/api/calendars", { name, url });
+    setBusy(null);
+    if (ok) {
+      setUrl("");
+      actions.toast({ text: `${name} calendar linked. Your events now appear in Today, Tomorrow and Week.` });
+    }
+  };
+  return (
+    <div className="card calendars">
+      <h2 className="h3">Linked calendars</h2>
+      <p className="muted small">
+        Nikki reads your calendar so meetings appear automatically and plans fit around them. It's read-only: Nikki never changes
+        your calendar. Events sync every 15 minutes for the next 30 days (all-day events are skipped).
+      </p>
+      {state.calendars.length > 0 && (
+        <ul className="plain-list">
+          {state.calendars.map((c) => (
+            <li key={c.id} className="calendar-row">
+              <span>
+                <strong>{c.name}</strong>{" "}
+                <span className="muted small">
+                  {c.lastError ? (
+                    <span className="error-text small">Couldn't sync: {c.lastError}</span>
+                  ) : c.lastSyncAt ? (
+                    `Synced ${timeAgo(c.lastSyncAt)} · ${c.eventCount} upcoming event${c.eventCount === 1 ? "" : "s"}`
+                  ) : (
+                    "Waiting for first sync"
+                  )}
+                </span>
+              </span>
+              <span className="row gap">
+                <button
+                  className="btn small ghost"
+                  disabled={busy === c.id}
+                  onClick={async () => {
+                    setBusy(c.id);
+                    await actions.mutate("POST", `/api/calendars/${c.id}/sync`, {});
+                    setBusy(null);
+                  }}
+                >
+                  {busy === c.id ? "Syncing…" : "Sync now"}
+                </button>
+                <button
+                  className="btn small ghost"
+                  onClick={() => confirm(`Unlink “${c.name}”? Its events will be removed from Nikki (your calendar itself is untouched).`) && actions.mutate("DELETE", `/api/calendars/${c.id}`)}
+                >
+                  Unlink
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="calendar-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (url.trim()) add();
+        }}
+      >
+        <select value={name} onChange={(e) => setName(e.target.value)} aria-label="Calendar type">
+          <option>Google</option>
+          <option>Apple</option>
+          <option>Outlook</option>
+          <option>Work</option>
+          <option>Personal</option>
+        </select>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste your private calendar link (https://… or webcal://…)" aria-label="Calendar link" />
+        <button className="btn primary" disabled={!url.trim() || busy === "add"}>
+          {busy === "add" ? "Checking…" : "Link"}
+        </button>
+      </form>
+      <details className="small">
+        <summary>How do I get my Google link?</summary>
+        <ol className="howto">
+          <li>
+            On a computer, open <strong>calendar.google.com</strong>.
+          </li>
+          <li>
+            On the left, hover over your calendar under <strong>My calendars</strong>, click <strong>⋮</strong> →{" "}
+            <strong>Settings and sharing</strong>.
+          </li>
+          <li>
+            Scroll to <strong>Integrate calendar</strong> and copy <strong>Secret address in iCal format</strong> (it ends in
+            <code>.ics</code>).
+          </li>
+          <li>Paste it above and click Link. Keep this link private — anyone with it can see your events.</li>
+        </ol>
+      </details>
+      <details className="small">
+        <summary>How do I get my Apple (iCloud) link?</summary>
+        <ol className="howto">
+          <li>
+            On your iPhone open <strong>Calendar</strong> → <strong>Calendars</strong>, tap <strong>ⓘ</strong> next to the calendar.
+            On a Mac: in Calendar, right-click the calendar → <strong>Share Calendar…</strong>.
+          </li>
+          <li>
+            Turn on <strong>Public Calendar</strong> and tap <strong>Share Link…</strong> → <strong>Copy</strong> (it starts with
+            <code>webcal://</code>).
+          </li>
+          <li>Paste it above and click Link. "Public" means anyone with the link can view it, so don't share the link.</li>
+        </ol>
+      </details>
     </div>
   );
 }

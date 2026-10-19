@@ -221,7 +221,10 @@ export function demoRespond(input: DemoInput): DemoResult {
       project: null,
       duplicate_of: null,
     }));
-  if (meeting && !input.meetings.some((m) => m.start === meeting.start && m.end === meeting.end)) {
+  if (
+    meeting &&
+    !input.meetings.some((m) => toMinutes(m.start) < toMinutes(meeting.end) && toMinutes(meeting.start) < toMinutes(m.end))
+  ) {
     res.meetings.push({ date: null, ...meeting });
   }
 
@@ -294,7 +297,9 @@ function proposeFromInfo(
   }
   const meetings: Meeting[] = [...input.meetings];
   for (const m of res.meetings) meetings.push({ id: "pending", title: m.title, start: m.start, end: m.end, date: "" });
-  if (info.meeting && !meetings.some((m) => m.start === info.meeting!.start)) {
+  const overlapsSaved = (x: { start: string; end: string }) =>
+    meetings.some((m) => toMinutes(m.start) < toMinutes(x.end) && toMinutes(x.start) < toMinutes(m.end));
+  if (info.meeting && !overlapsSaved(info.meeting)) {
     meetings.push({ id: "pending", date: "", title: "Meeting", ...info.meeting });
   }
 

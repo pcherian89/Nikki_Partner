@@ -133,6 +133,15 @@ To use your own domain later (for example `nikki.revivosporttech.com`), add it u
 - **My context as items**: each project, goal, commitment and preference is its own item. Click an item to edit it, or click × to delete it (with Undo). Nikki can suggest adding or removing items, for example "I'm not working on X any more", but nothing changes until you confirm.
 - **Saved context stays clean**: for list fields (projects, goals, commitments, preferences), Nikki only *adds* new lines, so nothing is ever removed. Single values (name, hours, timezone) show a before → after. Suggestions you've saved or dismissed don't come back, and duplicate lines are removed automatically.
 
+### Linked calendars (Google, Apple, Outlook)
+
+In **My context → Linked calendars**, paste a private calendar link. For Google, that's "Secret address in iCal format". For Apple, it's a Public Calendar share link. Nikki then reads your events for the next 30 days, including repeating ones, so they appear in Today, Tomorrow and Week as fixed meetings, and plans fit around them.
+
+- It's **read-only**: Nikki never changes your calendar. To change a calendar event, change it in your calendar.
+- Calendars sync every 15 minutes while the app is running, and whenever you open it. There's also a **Sync now** button.
+- All-day events and cancelled events are skipped.
+- The private link stays on the server and is never shown in full in the browser. It is included in data exports, so keep exports private.
+
 ### Daily rhythm, task help and learning
 
 - **Evening wrap-up** (Today → "Wrap up my day"): see what got done, then decide what happens to each unfinished item (Tomorrow, Done, Park or Drop) and add an optional note. This needs no AI. You can also ask for a short reflection from Nikki, which is one AI message (scripted in Demo mode).

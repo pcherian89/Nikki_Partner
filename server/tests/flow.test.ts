@@ -709,3 +709,118 @@ test("export -> import round-trip restores a workspace", async () => {
   assert.equal(st.tasks[0].steps[0].title, "Step one");
   assert.equal(st.upcoming[0].title, "Review");
 });
+
+// ---------- v5: linked calendars (read-only .ics) ----------
+
+const SAMPLE_ICS = [
+  "BEGIN:VCALENDAR",
+  "VERSION:2.0",
+  "PRODID:-//Test//EN",
+  "BEGIN:VEVENT",
+  "UID:daily-standup@test",
+  "SUMMARY:Team sync",
+  "DTSTART;TZID=Europe/London:20261005T143000",
+  "DTEND;TZID=Europe/London:20261005T153000",
+  "RRULE:FREQ=DAILY;COUNT=3",
+  "EXDATE;TZID=Europe/London:20261006T143000",
+  "END:VEVENT",
+  "BEGIN:VEVENT",
+  "UID:holiday@test",
+  "SUMMARY:Holiday",
+  "DTSTART;VALUE=DATE:20261008",
+  "DTEND;VALUE=DATE:20261009",
+  "END:VEVENT",
+  "BEGIN:VEVENT",
+  "UID:utc@test",
+  "SUMMARY:Investor call",
+  "DTSTART:20261009T090000Z",
+  "DTEND:20261009T093000Z",
+  "END:VEVENT",
+  "BEGIN:VEVENT",
+  "UID:cancelled@test",
+  "SUMMARY:Cancelled thing",
+  "STATUS:CANCELLED",
+  "DTSTART:20261005T100000Z",
+  "DTEND:20261005T110000Z",
+  "END:VEVENT",
+  "BEGIN:VEVENT",
+  "UID:overlap@test",
+  "SUMMARY:Overlapping call",
+  "DTSTART;TZID=Europe/London:20261005T150000",
+  "DTEND;TZID=Europe/London:20261005T160000",
+  "END:VEVENT",
+  "END:VCALENDAR",
+].join("\r\n");
+
+test("linked calendar: events sync read-only, repeating events expand, all-day/cancelled are skipped", async () => {
+  const http = await import("node:http");
+  let ics = SAMPLE_ICS;
+  const cal = http.createServer((req, res) => {
+    if (req.url === "/cal.ics") {
+      res.writeHead(200, { "content-type": "text/calendar" });
+      res.end(ics);
+    } else {
+      res.writeHead(404);
+      res.end("nope");
+    }
+  });
+  await new Promise<void>((r) => cal.listen(0, r));
+  const url = `http://localhost:${(cal.address() as AddressInfo).port}/cal.ics`;
+  try {
+    const bad = await api("POST", "/api/calendars", { name: "Bad", url: url.replace("cal.ics", "missing.ics") }, "personal");
+    assert.equal(bad.status, 422);
+    const r = await api("POST", "/api/calendars", { name: "Google", url: url.replace("http://", "webcal://").replace("webcal://", "http://") }, "personal");
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    const st = r.json.state;
+    assert.equal(st.calendars.length, 1);
+    assert.ok(!JSON.stringify(st.calendars).includes("/cal.ics"), "private link isn't sent to the browser");
+    assert.deepEqual(
+      st.meetings.map((m: any) => [m.title, m.start, m.end, m.source]),
+      [
+        ["Team sync", "14:30", "15:30", "calendar"],
+        ["Overlapping call", "15:00", "16:00", "calendar"],
+      ],
+    );
+    assert.equal(st.tomorrow.meetings.length, 0, "EXDATE removed the 6th");
+    const up = st.upcoming.map((m: any) => [m.date, m.title, m.start]);
+    assert.deepEqual(up, [
+      ["2026-10-07", "Team sync", "14:30"],
+      ["2026-10-09", "Investor call", "10:00"],
+    ]);
+    // Read-only
+    const id = st.meetings[0].id;
+    assert.equal((await api("DELETE", `/api/meetings/${id}`, undefined, "personal")).status, 400);
+    assert.equal((await api("PATCH", `/api/meetings/${id}`, { title: "x", start: "09:00", end: "10:00" }, "personal")).status, 400);
+    // Re-sync picks up changes and keeps ids stable
+    ics = ics.replace("SUMMARY:Investor call", "SUMMARY:Investor call (moved)").replace("20261009T090000Z", "20261009T100000Z").replace("20261009T093000Z", "20261009T103000Z");
+    const s2 = await api("POST", `/api/calendars/${st.calendars[0].id}/sync`, {}, "personal");
+    assert.ok(s2.json.state.upcoming.some((m: any) => m.title === "Investor call (moved)" && m.start === "11:00"));
+    assert.equal(s2.json.state.meetings[0].id, id);
+    // Remove the calendar -> its events disappear
+    const rm = await api("DELETE", `/api/calendars/${st.calendars[0].id}`, undefined, "personal");
+    assert.equal(rm.json.state.meetings.length, 0);
+    assert.equal(rm.json.state.calendars.length, 0);
+  } finally {
+    cal.close();
+  }
+});
+
+test("plans can be confirmed around overlapping calendar events", async () => {
+  const http = await import("node:http");
+  const cal = http.createServer((_q, res) => {
+    res.writeHead(200, { "content-type": "text/calendar" });
+    res.end(SAMPLE_ICS);
+  });
+  await new Promise<void>((r) => cal.listen(0, r));
+  try {
+    await api("POST", "/api/calendars", { name: "Apple", url: `http://localhost:${(cal.address() as AddressInfo).port}/x.ics` });
+    const s = await demoPlan();
+    assert.ok(s.proposal?.plan, "demo proposal made");
+    const c = await api("POST", `/api/proposals/${s.proposal.id}/confirm`, {});
+    assert.equal(c.status, 200, JSON.stringify(c.json));
+    const meetings = c.json.state.plan.blocks.filter((b: any) => b.kind === "meeting").map((b: any) => b.title);
+    assert.ok(meetings.includes("Team sync") && meetings.includes("Overlapping call"));
+  } finally {
+    cal.close();
+  }
+});

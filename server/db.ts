@@ -154,6 +154,9 @@ function migrate(db: DB) {
   if (!cols.has("spent_minutes")) db.exec("ALTER TABLE tasks ADD COLUMN spent_minutes INTEGER NOT NULL DEFAULT 0");
   if (!cols.has("timer_started_at")) db.exec("ALTER TABLE tasks ADD COLUMN timer_started_at TEXT");
   if (!cols.has("planned_date")) db.exec("ALTER TABLE tasks ADD COLUMN planned_date TEXT");
+  const mcols = new Set((db.prepare("PRAGMA table_info(meetings)").all() as { name: string }[]).map((c) => c.name));
+  if (!mcols.has("source")) db.exec("ALTER TABLE meetings ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
+  if (!mcols.has("feed_id")) db.exec("ALTER TABLE meetings ADD COLUMN feed_id TEXT");
   // One-time clean-up of context fields duplicated by an earlier version.
   const row = db.prepare("SELECT data FROM profile WHERE id = 1").get() as { data: string } | undefined;
   if (row) {
@@ -487,15 +490,17 @@ export function deleteTask(db: DB, id: string) {
 
 // ---------- meetings ----------
 
+const MEETING_COLS = "id, date, title, start, end, source, feed_id AS feedId";
+
 export function listMeetings(db: DB, date: string): Meeting[] {
   return db
-    .prepare("SELECT id, date, title, start, end FROM meetings WHERE date = ? AND deleted = 0 ORDER BY start")
+    .prepare(`SELECT ${MEETING_COLS} FROM meetings WHERE date = ? AND deleted = 0 ORDER BY start, end`)
     .all(date) as Meeting[];
 }
 
 export function listMeetingsBetween(db: DB, from: string, to: string): Meeting[] {
   return db
-    .prepare("SELECT id, date, title, start, end FROM meetings WHERE date >= ? AND date <= ? AND deleted = 0 ORDER BY date, start")
+    .prepare(`SELECT ${MEETING_COLS} FROM meetings WHERE date >= ? AND date <= ? AND deleted = 0 ORDER BY date, start, end`)
     .all(from, to) as Meeting[];
 }
 

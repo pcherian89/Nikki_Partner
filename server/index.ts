@@ -32,9 +32,12 @@ import {
   replaceSteps,
   setStepDone,
   deleteDraft,
+  getSetting,
+  setSetting,
 } from "./db.js";
 import { breakDown, helpMeStart } from "./helpers.js";
 import { importWorkspace } from "./importer.js";
+import { addFeed, removeFeed, syncFeed, syncStale } from "./calendar.js";
 import { getProvider } from "./provider/index.js";
 import { ProviderError } from "./provider/types.js";
 import {
@@ -46,6 +49,7 @@ import {
   resolveTimezone,
   reviewNewDay,
   wrapUpDay,
+  rebuildPlanMeetings,
 } from "./planOps.js";
 import { isValidDate, isValidTime, isValidTimeZone, localNow } from "./time.js";
 import { validateMeeting, validatePlanDraft } from "./validate.js";
@@ -130,6 +134,8 @@ function ctx(req: Request): Ctx {
   const ws: Workspace = req.header("x-workspace") === "demo" ? "demo" : "personal";
   const db = getDb(ws);
   const tz = resolveTimezone(getProfile(db), req.header("x-timezone"));
+  // Remembered so background calendar sync uses the user's local time.
+  if (getSetting(db, "last_timezone") !== tz) setSetting(db, "last_timezone", tz);
   return { ws, db, tz };
 }
 
@@ -150,7 +156,44 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, liveAvailable: getProvider() !== null, model: getProvider() ? config.model : null });
 });
 
-app.get("/api/state", h((req, res) => res.json({ state: state(req, ctx(req)) })));
+app.get(
+  "/api/state",
+  h((req, res) => {
+    const c = ctx(req);
+    syncStale(c.db, c.tz); // refresh linked calendars in the background if they're stale
+    res.json({ state: state(req, c) });
+  }),
+);
+
+// ---------- linked calendars (read-only) ----------
+
+app.post(
+  "/api/calendars",
+  h(async (req, res) => {
+    const c = ctx(req);
+    const body = parse(z.object({ name: z.string().max(60).default(""), url: z.string().min(8).max(2000) }), req.body);
+    const r = await addFeed(c.db, body.name, body.url, c.tz);
+    res.json({ state: state(req, c), warning: r.warnings[0] ?? null });
+  }),
+);
+
+app.post(
+  "/api/calendars/:id/sync",
+  h(async (req, res) => {
+    const c = ctx(req);
+    const r = await syncFeed(c.db, String(req.params.id), c.tz);
+    res.json({ state: state(req, c), warning: r.warnings[0] ?? null });
+  }),
+);
+
+app.delete(
+  "/api/calendars/:id",
+  h((req, res) => {
+    const c = ctx(req);
+    removeFeed(c.db, String(req.params.id), c.tz);
+    res.json({ state: state(req, c) });
+  }),
+);
 
 const MessageBody = z.object({
   text: z.string().trim().min(1).max(8000),
@@ -418,29 +461,13 @@ const MeetingBody = z.object({
 });
 
 function meetingById(c: Ctx, id: string) {
-  return c.db.prepare("SELECT id, date, title, start, end FROM meetings WHERE id = ? AND deleted = 0").get(id) as
-    | { id: string; date: string; title: string; start: string; end: string }
+  return c.db.prepare("SELECT id, date, title, start, end, source FROM meetings WHERE id = ? AND deleted = 0").get(id) as
+    | { id: string; date: string; title: string; start: string; end: string; source: string }
     | undefined;
 }
 
-/** After a commitment changes, rebuild that day's plan meeting blocks if the plan still fits. */
 function syncPlanMeetings(c: Ctx, date: string): string | null {
-  const plan = currentPlan(c.db, date);
-  if (!plan) return null;
-  const meetings = listMeetings(c.db, date);
-  const blocks = [
-    ...plan.blocks.filter((b) => b.kind !== "meeting"),
-    ...meetings.map((m) => ({ id: `b_${m.id}`, start: m.start, end: m.end, kind: "meeting" as const, taskId: null, meetingId: m.id, title: m.title })),
-  ].sort((a, b) => a.start.localeCompare(b.start));
-  const { id: _i, version, status: _s, createdAt: _c, proposalId: _p, source: _so, ...rest } = plan;
-  const draft = { ...rest, blocks };
-  const tasks = new Map(
-    (c.db.prepare("SELECT id FROM tasks WHERE deleted = 0").all() as { id: string }[]).map((t) => [t.id, t as never]),
-  );
-  const errors = validatePlanDraft(draft, { meetings, tasks });
-  if (errors.length) return `That change clashes with the plan for ${date === localNow(c.tz).date ? "today" : date} (${errors[0]}). Ask Nikki to update the plan.`;
-  savePlanVersion(c.db, draft, { expectedVersion: version, proposalId: null, source: "user-edit" });
-  return null;
+  return rebuildPlanMeetings(c.db, date, localNow(c.tz).date);
 }
 
 app.post(
@@ -466,6 +493,7 @@ app.patch(
     const body = parse(MeetingBody, req.body);
     const cur = meetingById(c, String(req.params.id));
     if (!cur) throw new UserFacingError("Meeting not found.", 404, "not_found");
+    if (cur.source === "calendar") throw new UserFacingError("This event comes from your linked calendar — change it there.", 400, "read_only");
     const date = body.date ?? cur.date;
     if (date < localNow(c.tz).date) throw new UserFacingError("That date is in the past.");
     const errors = validateMeeting(body, listMeetings(c.db, date), cur.id);
@@ -481,6 +509,7 @@ app.delete(
   h((req, res) => {
     const c = ctx(req);
     const cur = meetingById(c, String(req.params.id));
+    if (cur?.source === "calendar") throw new UserFacingError("This event comes from your linked calendar — remove it there.", 400, "read_only");
     deleteMeeting(c.db, String(req.params.id));
     const warning = cur ? syncPlanMeetings(c, cur.date) : null;
     res.json({ state: state(req, c), warning });
@@ -612,6 +641,13 @@ if (isMain && config.publicDeployment && config.appPassword.length < 10) {
 
 if (isMain) {
   for (const ws of ["personal", "demo"] as const) recoverRequests(getDb(ws));
+  // Keep linked calendars fresh even when nobody has the app open.
+  setInterval(() => {
+    for (const ws of ["personal", "demo"] as const) {
+      const db = getDb(ws);
+      syncStale(db, resolveTimezone(getProfile(db), getSetting(db, "last_timezone") ?? undefined));
+    }
+  }, 15 * 60 * 1000).unref();
   app.listen(config.port, () => {
     console.log(`Nikki is running on http://localhost:${config.port}`);
     console.log(`  Personal data: ${dbPath("personal")}`);

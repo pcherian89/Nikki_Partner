@@ -433,7 +433,11 @@ function Schedule({
                     <span className="slot-title">{task?.title ?? b.title}</span>
                     <span className="slot-meta">
                       {b.kind === "focus" && <span className="tag">Main focus</span>}
-                      {b.kind === "meeting" && <span className="tag subtle">Fixed meeting</span>}
+                      {b.kind === "meeting" && (
+                        <span className="tag subtle">
+                          {state.meetings.concat(state.tomorrow.meetings).find((m) => m.id === b.meetingId)?.source === "calendar" ? "From your calendar" : "Fixed meeting"}
+                        </span>
+                      )}
                       {b.kind === "buffer" && <span className="muted small">Buffer for overruns</span>}
                       {task?.status === "blocked" && <span className="tag warn">Blocked</span>}
                       {task?.status === "waiting" && <span className="tag subtle">Waiting</span>}
@@ -610,15 +614,16 @@ function Meetings({
           <li key={m.id} className="row between center-y">
             <span>
               <strong>{fmtRange(m.start, m.end)}</strong> · {m.title}
+              {m.source === "calendar" && <span className="tag subtle cal-tag">Calendar</span>}
             </span>
-            <span className="row gap">
+            {m.source !== "calendar" && <span className="row gap">
               <button className="btn small ghost" onClick={() => { setAdding(true); setEditId(m.id); setForm({ title: m.title, start: m.start, end: m.end }); }}>
                 Edit
               </button>
               <button className="btn small ghost" onClick={() => confirm(`Delete “${m.title}”?`) && actions.mutate("DELETE", `/api/meetings/${m.id}`)}>
                 Delete
               </button>
-            </span>
+            </span>}
           </li>
         ))}
       </ul>

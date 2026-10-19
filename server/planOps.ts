@@ -34,6 +34,7 @@ import {
 } from "./db.js";
 import { getProvider } from "./provider/index.js";
 import { estimationInsight } from "./learning.js";
+import { feedInfo } from "./calendar.js";
 import { LIST_FIELDS, recordDecision } from "./contextMemory.js";
 import { addDays, fromMinutes, isValidTimeZone, isValidTime, localDateOf, localNow, toMinutes, weekdayOf } from "./time.js";
 import { validatePlanDraft, WORK_KINDS } from "./validate.js";
@@ -93,7 +94,8 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined):
       return { date, weekday: weekdayOf(date), plan: currentPlan(db, date), meetings: listMeetings(db, date) };
     })(),
     upcoming: listMeetingsBetween(db, addDays(now.date, 1), addDays(now.date, 30)),
-    hasAnyData: messages.length > 0 || tasks.length > 0 || !!profile.updatedAt,
+    calendars: feedInfo(db),
+    hasAnyData: messages.length > 0 || tasks.length > 0 || !!profile.updatedAt || feedInfo(db).length > 0,
   };
 }
 
@@ -387,4 +389,24 @@ export function wrapUpDay(db: DB, input: { decisions: WrapDecision[]; note: stri
     addMessage(db, { role: "assistant", text: `Day wrapped up: ${parts.join(", ")}.`, meta: { system: true, kind: "wrapup" } });
     return entry;
   })();
+}
+
+/** After commitments change, rebuild a day's plan meeting blocks if the plan still fits. Returns a warning if it doesn't. */
+export function rebuildPlanMeetings(db: DB, date: string, today: string): string | null {
+  const plan = currentPlan(db, date);
+  if (!plan) return null;
+  const meetings = listMeetings(db, date);
+  const same =
+    JSON.stringify(plan.blocks.filter((b) => b.kind === "meeting").map((b) => [b.meetingId, b.start, b.end])) ===
+    JSON.stringify(meetings.map((m) => [m.id, m.start, m.end]));
+  if (same) return null;
+  const { meetings: ms, blocks } = withMeetingBlocks(db, date, plan.blocks);
+  const { id: _i, version, status: _s, createdAt: _c, proposalId: _p, source: _so, ...rest } = plan;
+  const draft = { ...rest, blocks };
+  const errors = validatePlanDraft(draft, { meetings: ms, tasks: taskMap(db) });
+  if (errors.length) {
+    return `Your ${date === today ? "today" : "tomorrow"} plan clashes with a changed meeting (${errors[0]}). Ask Nikki to update the plan.`;
+  }
+  savePlanVersion(db, draft, { expectedVersion: version, proposalId: null, source: "user-edit" });
+  return null;
 }

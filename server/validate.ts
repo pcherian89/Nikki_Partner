@@ -20,13 +20,23 @@ export function workMinutes(d: Pick<PlanDraft, "blocks">) {
 export function freeMinutes(window: { start: string; end: string }, meetings: Meeting[]) {
   const ws = toMinutes(window.start);
   const we = toMinutes(window.end);
-  let total = Math.max(0, we - ws);
-  for (const m of meetings) {
-    const s = Math.max(ws, toMinutes(m.start));
-    const e = Math.min(we, toMinutes(m.end));
-    if (e > s) total -= e - s;
+  // Merge overlapping meetings so shared time isn't subtracted twice.
+  const spans = meetings
+    .map((m) => [Math.max(ws, toMinutes(m.start)), Math.min(we, toMinutes(m.end))] as [number, number])
+    .filter(([s, e]) => e > s)
+    .sort((a, b) => a[0] - b[0]);
+  let busy = 0;
+  let curS = -1;
+  let curE = -1;
+  for (const [s, e] of spans) {
+    if (s > curE) {
+      if (curE > curS) busy += curE - curS;
+      curS = s;
+      curE = e;
+    } else curE = Math.max(curE, e);
   }
-  return total;
+  if (curE > curS) busy += curE - curS;
+  return Math.max(0, we - ws - busy);
 }
 
 /** Returns a list of human-readable problems. Empty list = valid. */
@@ -56,6 +66,8 @@ export function validatePlanDraft(d: PlanDraft, ctx: PlanCheckContext): string[]
   for (let i = 1; i < blocks.length; i++) {
     const p = blocks[i - 1];
     const c = blocks[i];
+    // Calendar events may overlap each other; work blocks may not overlap anything.
+    if (p.kind === "meeting" && c.kind === "meeting") continue;
     if (toMinutes(c.start) < toMinutes(p.end)) {
       errors.push(`Blocks overlap: "${p.title}" (${p.start}–${p.end}) and "${c.title}" (${c.start}–${c.end}).`);
     }
