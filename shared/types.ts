@@ -236,6 +236,8 @@ export interface AppState {
   /** Commitments after today (next 30 days). */
   upcoming: Meeting[];
   calendars: CalendarFeedInfo[];
+  /** Secret token for the "Nikki in your calendar" subscription link, or null if not created. */
+  nikkiFeedToken: string | null;
 }
 
 export interface ApiError {

@@ -2155,3 +2155,14 @@ details summary {
     flex-wrap: wrap;
   }
 }
+.feed-url {
+  display: flex;
+  gap: 8px;
+}
+.feed-url input {
+  font-size: 13px;
+}
+.warn-text {
+  color: var(--warn);
+  margin: 0;
+}

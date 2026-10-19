@@ -35,6 +35,7 @@ import {
 import { getProvider } from "./provider/index.js";
 import { estimationInsight } from "./learning.js";
 import { feedInfo } from "./calendar.js";
+import { getFeedToken } from "./icsExport.js";
 import { LIST_FIELDS, recordDecision } from "./contextMemory.js";
 import { addDays, fromMinutes, isValidTimeZone, isValidTime, localDateOf, localNow, toMinutes, weekdayOf } from "./time.js";
 import { validatePlanDraft, WORK_KINDS } from "./validate.js";
@@ -95,6 +96,7 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined):
     })(),
     upcoming: listMeetingsBetween(db, addDays(now.date, 1), addDays(now.date, 30)),
     calendars: feedInfo(db),
+    nikkiFeedToken: getFeedToken(db) || null,
     hasAnyData: messages.length > 0 || tasks.length > 0 || !!profile.updatedAt || feedInfo(db).length > 0,
   };
 }

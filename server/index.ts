@@ -38,6 +38,7 @@ import {
 import { breakDown, helpMeStart } from "./helpers.js";
 import { importWorkspace } from "./importer.js";
 import { addFeed, removeFeed, syncFeed, syncStale } from "./calendar.js";
+import { buildIcs, disableFeed, getFeedToken, resetFeedToken } from "./icsExport.js";
 import { getProvider } from "./provider/index.js";
 import { ProviderError } from "./provider/types.js";
 import {
@@ -117,6 +118,22 @@ app.post("/api/auth/logout", (_req, res) => {
   res.json({ ok: true });
 });
 
+// Public but secret: calendar apps can't log in, so the long random token is the key.
+app.get("/cal/:file", (req, res) => {
+  const token = String(req.params.file).replace(/\.ics$/, "");
+  const match = (["personal", "demo"] as const).find((ws) => {
+    const t = getFeedToken(getDb(ws));
+    if (!t || t.length !== token.length) return false;
+    return timingSafeEqual(Buffer.from(t), Buffer.from(token));
+  });
+  if (!match) return res.status(404).type("text/plain").send("Not found");
+  const db = getDb(match);
+  const tz = resolveTimezone(getProfile(db), getSetting(db, "last_timezone") ?? undefined);
+  res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache");
+  res.send(buildIcs(db, tz));
+});
+
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" || isAuthed(req)) return next();
   res.status(401).json({ error: "Please log in.", code: "auth_required" });
@@ -161,6 +178,19 @@ app.get(
   h((req, res) => {
     const c = ctx(req);
     syncStale(c.db, c.tz); // refresh linked calendars in the background if they're stale
+    res.json({ state: state(req, c) });
+  }),
+);
+
+// ---------- "Nikki in your calendar" subscription feed ----------
+
+app.post(
+  "/api/calendar-feed",
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(z.object({ action: z.enum(["create", "reset", "disable"]) }), req.body);
+    if (body.action === "disable") disableFeed(c.db);
+    else if (body.action === "reset" || !getFeedToken(c.db)) resetFeedToken(c.db);
     res.json({ state: state(req, c) });
   }),
 );

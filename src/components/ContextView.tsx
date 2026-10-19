@@ -118,6 +118,7 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
       </form>
 
       <Calendars state={state} actions={actions} />
+      <NikkiInCalendar state={state} actions={actions} />
 
       <div className="card">
         <h2 className="h3">What Nikki has learned about your pace</h2>
@@ -438,6 +439,99 @@ function Calendars({ state, actions }: { state: AppState; actions: AppActions })
           <li>Paste it above and click Link. "Public" means anyone with the link can view it, so don't share the link.</li>
         </ol>
       </details>
+    </div>
+  );
+}
+
+/** "Nikki in your calendar": a private subscription link for Google / Apple Calendar. */
+function NikkiInCalendar({ state, actions }: { state: AppState; actions: AppActions }) {
+  const [copied, setCopied] = useState(false);
+  const token = state.nikkiFeedToken;
+  const url = token ? `${window.location.origin}/cal/${token}.ics` : "";
+  const local = /^(localhost|127\.|\[::1\])/.test(window.location.hostname);
+  return (
+    <div className="card calendars">
+      <h2 className="h3">Nikki in your calendar</h2>
+      <p className="muted small">
+        Add your confirmed plans to Google or Apple Calendar as a separate “Nikki” calendar: focus blocks and tasks for today and
+        tomorrow, meetings you added here, and tasks you planned for a day in the Week view. It updates when your plan changes.
+      </p>
+      {!token ? (
+        <button className="btn primary" onClick={() => actions.mutate("POST", "/api/calendar-feed", { action: "create" })}>
+          Create my calendar link
+        </button>
+      ) : (
+        <>
+          <div className="feed-url">
+            <input readOnly value={url} onFocus={(e) => e.target.select()} aria-label="Your Nikki calendar link" />
+            <button
+              className="btn small"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(url);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                } catch {
+                  actions.toast({ text: "Select the link and copy it.", tone: "error" });
+                }
+              }}
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          {local && (
+            <p className="small warn-text">
+              This link only works once Nikki is hosted online. Your calendar app can't reach this computer, so add it after deploying.
+            </p>
+          )}
+          <p className="muted small">Keep this link private: anyone who has it can see your plans.</p>
+          <details className="small">
+            <summary>Add it to Google Calendar</summary>
+            <ol className="howto">
+              <li>
+                On a computer, open <strong>calendar.google.com</strong>.
+              </li>
+              <li>
+                On the left, next to <strong>Other calendars</strong>, click <strong>+</strong> → <strong>From URL</strong>.
+              </li>
+              <li>
+                Paste the link and click <strong>Add calendar</strong>. Google refreshes subscribed calendars every few hours, so
+                changes can take a while to appear.
+              </li>
+            </ol>
+          </details>
+          <details className="small">
+            <summary>Add it to Apple Calendar</summary>
+            <ol className="howto">
+              <li>
+                <strong>Mac:</strong> in Calendar, choose <strong>File → New Calendar Subscription…</strong>, paste the link, click
+                Subscribe, and set Auto-refresh to every 15 minutes or 5 minutes.
+              </li>
+              <li>
+                <strong>iPhone:</strong> Settings → Apps → Calendar → Calendar Accounts → Add Account → Other →{" "}
+                <strong>Add Subscribed Calendar</strong>, then paste the link.
+              </li>
+            </ol>
+          </details>
+          <div className="row gap wrap">
+            <button
+              className="btn small ghost"
+              onClick={() =>
+                confirm("Reset the link? The old link stops working, and you'll need to add the new one to your calendar again.") &&
+                actions.mutate("POST", "/api/calendar-feed", { action: "reset" })
+              }
+            >
+              Reset link
+            </button>
+            <button
+              className="btn small ghost"
+              onClick={() => confirm("Turn off the calendar link? Your calendar will stop showing Nikki's plans.") && actions.mutate("POST", "/api/calendar-feed", { action: "disable" })}
+            >
+              Turn off
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

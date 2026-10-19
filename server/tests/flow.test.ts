@@ -824,3 +824,44 @@ test("plans can be confirmed around overlapping calendar events", async () => {
     cal.close();
   }
 });
+
+// ---------- v6: "Nikki in your calendar" subscription feed ----------
+
+test("Nikki calendar feed: private link serves confirmed plans as valid iCalendar", async () => {
+  const { default: IcalExpander } = await import("ical-expander");
+  const { localToUtc } = await import("../icsExport.js");
+  // DST-aware local -> UTC
+  assert.equal(localToUtc("2026-10-05", "10:00", "Europe/London").toISOString(), "2026-10-05T09:00:00.000Z");
+  assert.equal(localToUtc("2026-12-05", "10:00", "Europe/London").toISOString(), "2026-12-05T10:00:00.000Z");
+  assert.equal(localToUtc("2026-10-05", "10:00", "Asia/Kolkata").toISOString(), "2026-10-05T04:30:00.000Z");
+
+  const s = await demoPlan();
+  await api("POST", `/api/proposals/${s.proposal.id}/confirm`, {});
+  const t = (await api("POST", "/api/tasks", { title: "Invoices, receipts; taxes", plannedDate: "2026-10-08" })).json.task;
+  const created = await api("POST", "/api/calendar-feed", { action: "create" });
+  const token = created.json.state.nikkiFeedToken;
+  assert.match(token, /^[0-9a-f]{48}$/);
+
+  const res = await fetch(`${base}/cal/${token}.ics`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type") ?? "", /text\/calendar/);
+  const ics = await res.text();
+  assert.ok(ics.split("\r\n").every((l) => Buffer.byteLength(l) <= 75), "lines folded");
+  assert.match(ics, /X-WR-CALNAME:Nikki/);
+  const parsed = new IcalExpander({ ics }).all();
+  const titles = parsed.events.map((e: any) => e.summary);
+  assert.ok(titles.includes("Focus: Finish a proposal"));
+  const focus = parsed.events.find((e: any) => e.summary === "Focus: Finish a proposal")!;
+  assert.equal(focus.startDate.toJSDate().toISOString(), "2026-10-05T09:00:00.000Z", "10:00 London = 09:00Z");
+  assert.ok(titles.includes("Meeting"), "meeting added in Nikki is included");
+  assert.ok(titles.includes("Nikki: Invoices, receipts; taxes"), "planned-day task as all-day event with escaping");
+  assert.ok(parsed.events.find((e: any) => e.summary.startsWith("Nikki: Invoices")).startDate.isDate);
+  void t;
+
+  assert.equal((await fetch(`${base}/cal/${"0".repeat(48)}.ics`)).status, 404);
+  const reset = await api("POST", "/api/calendar-feed", { action: "reset" });
+  assert.notEqual(reset.json.state.nikkiFeedToken, token);
+  assert.equal((await fetch(`${base}/cal/${token}.ics`)).status, 404, "old link stops working");
+  await api("POST", "/api/calendar-feed", { action: "disable" });
+  assert.equal((await fetch(`${base}/cal/${reset.json.state.nikkiFeedToken}.ics`)).status, 404);
+});

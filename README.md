@@ -142,6 +142,14 @@ In **My context → Linked calendars**, paste a private calendar link. For Googl
 - All-day events and cancelled events are skipped.
 - The private link stays on the server and is never shown in full in the browser. It is included in data exports, so keep exports private.
 
+### Nikki in your calendar (Google or Apple)
+
+In **My context → Nikki in your calendar**, click **Create my calendar link**, then subscribe to it in Google Calendar (**Other calendars → + → From URL**) or Apple Calendar (**File → New Calendar Subscription**). A separate "Nikki" calendar then shows your confirmed focus blocks and tasks for today and tomorrow, meetings you added in Nikki, and tasks planned for a day in the Week view.
+
+- The link only works once Nikki is hosted online, because calendar apps can't reach your computer.
+- The link is secret; anyone who has it can see your plans. **Reset link** makes the old one stop working.
+- Google refreshes subscribed calendars every few hours; Apple can refresh every 5–15 minutes.
+
 ### Daily rhythm, task help and learning
 
 - **Evening wrap-up** (Today → "Wrap up my day"): see what got done, then decide what happens to each unfinished item (Tomorrow, Done, Park or Drop) and add an optional note. This needs no AI. You can also ask for a short reflection from Nikki, which is one AI message (scripted in Demo mode).
