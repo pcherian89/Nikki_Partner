@@ -38,6 +38,8 @@ body {
   font-size: 15px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  /* Keep content clear of the iPhone home bar when opened from the home screen. */
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 button,
@@ -1333,7 +1335,7 @@ details summary {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   z-index: 50;
   display: flex;
