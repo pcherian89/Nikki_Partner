@@ -662,6 +662,12 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 // ---------- start ----------
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]).endsWith(path.join("server", "index.ts"));
+if (isMain) {
+  console.log(`Starting Nikki (Node ${process.version})…`);
+  process.on("exit", (code) => {
+    if (code !== 0) console.error(`Nikki stopped with exit code ${code}.`);
+  });
+}
 if (isMain && config.publicDeployment && config.appPassword.length < 10) {
   console.error(
     "Refusing to start: this is a hosted deployment, so APP_PASSWORD must be set to a strong password (at least 10 characters) to protect your data and API key.",
