@@ -15,7 +15,7 @@ export const MOVE_LABELS: Record<MoveChoice, string> = {
 
 const HINTS: Partial<Record<MoveChoice, string>> = {
   later_today: "Fits it into the next free time today",
-  someday: "Keeps it, off the calendar",
+  someday: "No date",
 };
 
 /**
@@ -129,5 +129,42 @@ export function DecisionRow<A extends string>({
         />
       )}
     </li>
+  );
+}
+
+export type SheetAction = { label: string; run: () => void; danger?: boolean };
+
+/** A plain list of actions in the same bottom sheet style as Move…. */
+export function ActionSheet({ title, items, onClose }: { title: string; items: SheetAction[]; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return createPortal(
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-grab" aria-hidden />
+        <div className="sheet-title">{title}</div>
+        <div className="sheet-options">
+          {items.map((i) => (
+            <button
+              key={i.label}
+              className={`sheet-option ${i.danger ? "danger" : ""}`}
+              onClick={() => {
+                onClose();
+                i.run();
+              }}
+            >
+              <span>{i.label}</span>
+            </button>
+          ))}
+        </div>
+        <button className="btn ghost sheet-cancel" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </div>,
+    document.body,
   );
 }

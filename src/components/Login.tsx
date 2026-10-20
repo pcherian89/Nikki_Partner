@@ -30,7 +30,7 @@ export function Login({ onDone }: { onDone: () => void }) {
         </label>
         {err && <p className="error-text">{err}</p>}
         <button className="btn primary" disabled={busy || !pw}>
-          {busy ? "Checking…" : "Open"}
+          {busy ? "Checking…" : "Sign in"}
         </button>
       </form>
     </div>

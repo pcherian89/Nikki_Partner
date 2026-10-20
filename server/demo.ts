@@ -235,7 +235,7 @@ export function demoRespond(input: DemoInput): DemoResult {
 
   if (!items.length && !hours && !meeting) {
     res.message = /\b(update|replan|re-plan)\b/i.test(text)
-      ? "To update today's plan, use the “Update my plan” button on the Today panel — I'll ask how much time you have left."
+      ? "To update today's plan, use the Replan button on the Today panel — I'll ask how much time you have left."
       : "I'm running in Demo mode, so I follow a simple script rather than understanding everything. Try listing what's on your mind, e.g. “I have 4 hours. I need to write the report, call the bank and plan the launch.” — or tap “Try an example”.";
     return { response: res, meta: { demoPhase: "idle" } };
   }
@@ -368,19 +368,19 @@ function proposeFromInfo(
   res.plan = {
     date: null,
     main_outcome: outcome,
-    focus: { task_ref: focus.ref, why: "It's tied to your main outcome, so it gets the first and longest uninterrupted stretch." },
-    supporting: supporting.map((c) => ({ task_ref: c.ref, why: "Meaningful progress that fits after the focus work." })),
+    focus: { task_ref: focus.ref, why: "Highest impact, so it gets the first and longest uninterrupted block." },
+    supporting: supporting.map((c) => ({ task_ref: c.ref, why: "Fits in the time left after the main focus." })),
     deferred: [
-      ...deferredActions.map((c) => ({ task_ref: c.ref, why: "Doesn't fit today without squeezing the focus work." })),
-      ...ideas.map((i) => ({ task_ref: i.ref, why: "An idea to explore later — parked, not an obligation today." })),
+      ...deferredActions.map((c) => ({ task_ref: c.ref, why: "No room today without cutting into the main focus." })),
+      ...ideas.map((i) => ({ task_ref: i.ref, why: "An idea, not a commitment for today." })),
     ],
     window,
     work_budget_minutes: Number.isFinite(budget) ? budget : Math.max(workPlanned, 0),
     blocks: sched.blocks,
     reasons: [
-      `${focus.title} is the main focus because it moves your main outcome forward.`,
-      supporting.length ? `${supporting.map((c) => c.title).join(" and ")} support it and fit the remaining time.` : "Nothing else fits without crowding the focus.",
-      ideas.length ? "Ideas stay parked so they don't compete with today's commitments." : "Breaks and a buffer protect against overruns.",
+      `${focus.title} first, while you're freshest.`,
+      supporting.length ? `${supporting.map((c) => c.title).join(" and ")} after that, in the time left.` : "Nothing else fits without cutting into the main focus.",
+      ideas.length ? "Ideas are kept for later." : "Breaks and a buffer cover overruns.",
     ],
     assumptions,
   };

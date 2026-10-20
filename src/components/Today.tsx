@@ -5,7 +5,7 @@ import { AutoTextarea } from "./AutoTextarea";
 import type { AppActions } from "../App";
 import { ProposalCard } from "./ProposalCard";
 import { ActualTime, doneTodayTasks, MorningCheckIn, WrappedUpNote, WrapUpPanel } from "./DayRhythm";
-import { StepList, TaskToolButtons } from "./TaskTools";
+import { StepList, TimerButton } from "./TaskTools";
 import { isWeekProposal, Week } from "./Week";
 import { DecisionRow, MoveSheet, type MoveChoice } from "./MoveSheet";
 import { capacity, draftOf, fmtDate, fmtDuration, fmtRange, fmtTime, fromMin, taskById, toMin } from "../util";
@@ -195,12 +195,12 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
         <div className="row gap wrap head-actions">
           {plan && (
             <button className="btn" onClick={() => { setReplanOpen((o) => !o); setWrapOpen(false); }} disabled={busy}>
-              ↻ Update my plan
+              Replan
             </button>
           )}
           {canWrap && !state.wrapUpToday && (
             <button className="btn ghost" onClick={() => { setWrapOpen((o) => !o); setReplanOpen(false); }} disabled={busy}>
-              Wrap up my day
+              Wrap up
             </button>
           )}
         </div>
@@ -251,7 +251,7 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
           <Capacity plan={plan} />
           {plan.deferred.length > 0 && (
             <details className="card deferred-card">
-              <summary>Not today ({plan.deferred.length})</summary>
+              <summary className="section-summary">Deferred ({plan.deferred.length})</summary>
               <ul className="plain-list">
                 {plan.deferred.map((d) => (
                   <li key={d.taskId}>
@@ -284,7 +284,7 @@ function TomorrowBody({ state, actions, busy }: { state: AppState; actions: AppA
         </div>
         {t.plan && (
           <button className="btn" onClick={() => actions.focusComposer("Let's adjust tomorrow's plan: ")} disabled={busy}>
-            ↻ Adjust with Nikki
+            Replan
           </button>
         )}
       </div>
@@ -307,10 +307,9 @@ function TomorrowBody({ state, actions, busy }: { state: AppState; actions: AppA
       ) : (
         !proposal && (
           <div className="card empty-plan">
-            <h3 className="h3">Get a head start on tomorrow</h3>
-            <p className="muted">Nikki can sketch tomorrow tonight, so you start the day knowing exactly what's first.</p>
+            <h3 className="h3">No plan yet</h3>
             <button className="btn primary" onClick={() => actions.focusComposer("Let's plan tomorrow. ")}>
-              Plan tomorrow with Nikki
+              Plan tomorrow
             </button>
           </div>
         )
@@ -325,14 +324,12 @@ function NoPlan({ state, actions }: { state: AppState; actions: AppActions }) {
   const open = state.tasks.filter((t) => t.type === "action" && t.status === "open");
   return (
     <div className="card empty-plan">
-      <h3 className="h3">No plan for today yet</h3>
+      <h3 className="h3">No plan yet</h3>
       <p className="muted">
-        {open.length
-          ? `You have ${open.length} open action${open.length > 1 ? "s" : ""}. Tell Nikki how much time you have and she'll suggest priorities.`
-          : "Tell Nikki what's on your mind and how much time you have."}
+        {open.length ? `${open.length} open action${open.length > 1 ? "s" : ""}. Tell Nikki how much time you have.` : "Tell Nikki what's on your plate and how much time you have."}
       </p>
       <button className="btn primary" onClick={() => actions.focusComposer(open.length ? "Let's plan today. " : "")}>
-        Plan today with Nikki
+        Plan today
       </button>
     </div>
   );
@@ -360,23 +357,22 @@ function NextUp({
   const missedNote =
     missed > 0 ? (
       <p className="missed-note small">
-        {missed === 1 ? "1 task" : `${missed} tasks`} ran over — tap Done or Move… on {missed === 1 ? "it" : "them"} below.
+        {missed === 1 ? "1 task not finished" : `${missed} tasks not finished`} — see the schedule below.
       </p>
     ) : null;
   if (allDone) {
     return (
       <div className="card next-up done">
-        <div className="eyebrow">Today</div>
+        <div className="eyebrow">Done</div>
         <strong>Everything planned for today is done.</strong>
-        <p className="muted small">Add something new with Nikki, or enjoy the space.</p>
       </div>
     );
   }
   if (!next) {
     return (
       <div className="card next-up">
-        <div className="eyebrow">Next</div>
-        <strong>Nothing else is scheduled for today.</strong>
+        <div className="eyebrow">Next up</div>
+        <strong>Nothing else scheduled today.</strong>
         {missedNote}
       </div>
     );
@@ -385,7 +381,7 @@ function NextUp({
   const isNow = toMin(next.start) <= now;
   return (
     <div className="card next-up">
-      <div className="eyebrow">{isNow ? "Now" : `Up next · ${fmtTime(next.start)}`}</div>
+      <div className="eyebrow">{isNow ? "Now" : "Next up"}</div>
       <label className="next-row">
         <input type="checkbox" className="check" checked={task.status === "done"} onChange={(e) => onToggle(task, e.target.checked)} />
         <span>
@@ -397,7 +393,9 @@ function NextUp({
         </span>
       </label>
       <StepList task={task} actions={actions} />
-      <TaskToolButtons task={task} actions={actions} timer />
+      <div className="task-tools">
+        <TimerButton task={task} actions={actions} />
+      </div>
       {missedNote}
     </div>
   );
@@ -444,7 +442,7 @@ function Schedule({
       blk.end = fromMin(toMin(blk.end) + minutes);
       d.workBudgetMinutes = Math.max(d.workBudgetMinutes, d.blocks.filter((x) => x.kind === "focus" || x.kind === "task").reduce((s, x) => s + toMin(x.end) - toMin(x.start), 0));
     }).then((ok) => {
-      if (!ok) actions.toast({ text: "There isn't room to extend that block. Try “Update my plan” to rebalance the day.", tone: "error" });
+      if (!ok) actions.toast({ text: "There isn't room to extend that block. Tap Replan to rebalance the day.", tone: "error" });
     });
 
   const [moving, setMoving] = useState<Task | null>(null);
@@ -484,12 +482,9 @@ function Schedule({
                     <span className="slot-title">{task?.title ?? b.title}</span>
                     <span className="slot-meta">
                       {b.kind === "focus" && <span className="tag">Main focus</span>}
-                      {b.kind === "meeting" && (
-                        <span className="tag subtle">
-                          {state.meetings.concat(state.tomorrow.meetings).find((m) => m.id === b.meetingId)?.source === "calendar" ? "From your calendar" : "Fixed meeting"}
-                        </span>
+                      {b.kind === "meeting" && state.meetings.concat(state.tomorrow.meetings).find((m) => m.id === b.meetingId)?.source === "calendar" && (
+                        <span className="tag subtle">Calendar</span>
                       )}
-                      {b.kind === "buffer" && <span className="muted small">Buffer for overruns</span>}
                       {task?.status === "blocked" && <span className="tag warn">Blocked</span>}
                       {task?.status === "waiting" && <span className="tag subtle">Waiting</span>}
                       {current && <span className="tag now">Now</span>}
@@ -622,8 +617,8 @@ function Capacity({ plan }: { plan: Plan }) {
   const parts = [
     { key: "work", label: "Planned work", value: c.work },
     { key: "break", label: "Breaks", value: c.breaks },
-    { key: "buffer", label: "Spare for overruns", value: c.buffer },
-    { key: "open", label: "Unplanned", value: c.open },
+    { key: "buffer", label: "Buffer", value: c.buffer },
+    { key: "open", label: "Free", value: c.open },
   ].filter((p) => p.value > 0);
   return (
     <div className="card capacity" aria-label="How your time adds up">
@@ -679,7 +674,7 @@ function Meetings({
   return (
     <div className="card meetings">
       <div className="row between center-y">
-        <h3 className="h3">Fixed meetings {label}</h3>
+        <h3 className="h3">Meetings</h3>
         {!adding && (
           <button className="btn small ghost" onClick={() => { setAdding(true); setEditId(null); setForm({ title: "", start: "", end: "" }); }}>
             + Add
@@ -724,7 +719,7 @@ function Completed({ state, plan, onToggle, actions }: { state: AppState; plan: 
   if (!done.length) return null;
   return (
     <div className="card completed">
-      <h3 className="h3">Completed today ({done.length})</h3>
+      <h3 className="h3">Done today ({done.length})</h3>
       <ul className="plain-list">
         {done.map((t) => (
           <li key={t.id} className="completed-row">
@@ -738,13 +733,6 @@ function Completed({ state, plan, onToggle, actions }: { state: AppState; plan: 
           </li>
         ))}
       </ul>
-      {state.learning.factor ? (
-        <p className="muted small learning-line">
-          Nikki is learning your pace: tasks take about {state.learning.factor}× their estimate ({state.learning.samples} measured).
-        </p>
-      ) : (
-        <p className="muted small learning-line">Recording how long tasks really take helps Nikki plan more accurately.</p>
-      )}
     </div>
   );
 }
@@ -769,18 +757,18 @@ function ReplanForm({ plan, state, actions, onClose, busy }: { plan: Plan; state
         if (ok) onClose();
       }}
     >
-      <h3 className="h3">Update my plan</h3>
-      <p className="muted small">Nikki will keep completed work and fixed meetings, and only rework the time that's left. You'll see the changes before anything is saved.</p>
+      <h3 className="h3">Replan</h3>
+      <p className="muted small">Completed work and meetings stay fixed.</p>
       <label className="field">
-        <span>Until what time can you keep working today?</span>
+        <span>Work until</span>
         <input type="time" value={until} onChange={(e) => setUntil(e.target.value)} required />
       </label>
       <label className="field">
-        <span>Anything new? (optional)</span>
+        <span>What changed? (optional)</span>
         <AutoTextarea value={note} placeholder="e.g. The client call ran long; I'm low on energy" onChange={setNote} />
       </label>
       <div className="row gap">
-        <button className="btn primary" disabled={!until || busy}>Propose an update</button>
+        <button className="btn primary" disabled={!until || busy}>Replan</button>
         <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
       </div>
     </form>
@@ -802,15 +790,14 @@ function NewDayReview({ state, actions }: { state: AppState; actions: AppActions
     if (ok && !skip) {
       const kept = Object.entries(decisions).filter(([, a]) => a === "today").map(([id]) => tasks.get(id)?.title).filter(Boolean);
       if (!state.plan) actions.focusComposer(kept.length ? `Let's plan today. Carrying over: ${kept.join(", ")}. ` : "Let's plan today. ");
-      else actions.toast({ text: kept.length ? `${kept.length} carried into today. Ask Nikki to fit ${kept.length === 1 ? "it" : "them"} into the plan.` : "Sorted." });
+      else actions.toast({ text: kept.length ? `${kept.length} carried into today. Ask Nikki to fit ${kept.length === 1 ? "it" : "them"} into the plan.` : "Saved." });
     }
   };
   const n = nd.unfinishedTaskIds.length;
   return (
     <div className="card new-day">
-      <div className="eyebrow">Not finished</div>
-      <h3 className="h3">{n === 1 ? "1 task" : `${n} tasks`} from before today didn't get done</h3>
-      <p className="muted small">They'll carry into today. Tap Change for anything that should go elsewhere.</p>
+      <h3 className="h3">Carried over ({n})</h3>
+      <p className="muted small">Not finished earlier. These move to today unless you change them.</p>
       <ul className="plain-list decisions">
         {nd.unfinishedTaskIds.map((id) => {
           const t = tasks.get(id);
@@ -831,8 +818,8 @@ function NewDayReview({ state, actions }: { state: AppState; actions: AppActions
         })}
       </ul>
       <div className="row gap wrap">
-        <button className="btn primary" onClick={() => submit()}>Looks good</button>
-        <button className="btn ghost" onClick={() => submit(true)}>Later</button>
+        <button className="btn primary" onClick={() => submit()}>Confirm</button>
+        <button className="btn ghost" onClick={() => submit(true)}>Skip</button>
       </div>
     </div>
   );

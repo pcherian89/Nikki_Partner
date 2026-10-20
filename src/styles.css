@@ -70,16 +70,28 @@ textarea {
   letter-spacing: -0.02em;
   margin: 6px 0 8px;
 }
+/* Titles are set in caps (strings stay in normal case for screen readers). */
 .h2 {
-  font-size: 22px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   margin: 2px 0;
 }
-.h3 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0 0 6px;
+.h3,
+.section-summary {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin: 0 0 8px;
+}
+.h3.modal-title {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  font-size: 17px;
 }
 .lead {
   color: var(--text-2);
@@ -1517,14 +1529,6 @@ details summary {
   }
   .welcome-content .lead {
     margin: 0 auto;
-  }
-  .task-main {
-    flex-wrap: wrap;
-  }
-  .task-actions {
-    width: 100%;
-    padding-left: 34px;
-    justify-content: flex-start;
   }
 }
 

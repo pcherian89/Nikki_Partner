@@ -49,17 +49,11 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
       <div className="page-head row gap center-y">
         <Avatar size={56} glow />
         <div>
-          <h1 className="h2">My context</h1>
-          <p className="muted">Everything here is optional. The more Nikki knows, the less she has to ask.</p>
+          <h1 className="h2">Context</h1>
+          <p className="muted small">What Nikki knows about you. All optional.</p>
         </div>
       </div>
 
-      <div className="card memory-note">
-        <strong>How Nikki's memory works.</strong> What you save here, your tasks, plans and recent conversation are stored by this app
-        in its own database{demo ? " (the separate demo database)" : ""}. When you message Nikki, the relevant parts are sent to the AI model as
-        context for that one request. This is not model training — the model doesn't learn or remember anything between requests. Nikki may
-        suggest updates from your conversations, but nothing is saved here without your confirmation.
-      </div>
 
       <div className="context-lists">
         <ListField state={state} actions={actions} field="projects" title="Businesses & projects" placeholder="e.g. Revivo IQ — AI consulting" />
@@ -81,7 +75,7 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
           <input value={form.name} onChange={set("name")} placeholder="What should Nikki call you?" />
         </label>
         <label className="field">
-          <span>Main outcome right now</span>
+          <span>Current priority</span>
           <AutoTextarea value={form.mainOutcome} onChange={(v) => set("mainOutcome")({ target: { value: v } })} placeholder="The one result that matters most this season" />
         </label>
         <div className="grid-3">
@@ -114,7 +108,6 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
               Discard changes
             </button>
           )}
-          <span className="muted small">Using timezone: {state.timezone}</span>
         </div>
       </form>
 
@@ -122,7 +115,7 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
       <NikkiInCalendar state={state} actions={actions} />
 
       <div className="card">
-        <h2 className="h3">What Nikki has learned about your pace</h2>
+        <h2 className="h3">Pace</h2>
         {state.learning.factor ? (
           <>
             <p className="small">
@@ -154,7 +147,7 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
         ) : (
           <p className="muted small">
             Not enough data yet ({state.learning.samples} of 3 tasks measured). Use the focus timer on a task, or tell Nikki how long a
-            finished task really took in “Completed today”. After 3 tasks she starts adjusting your plans.
+            finished task really took in “Done today”. After 3 tasks she starts adjusting your plans.
           </p>
         )}
       </div>
@@ -165,7 +158,7 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
           <button className={`mode-option ${!demo ? "active" : ""}`} onClick={() => actions.switchWorkspace("personal")}>
             <strong>My workspace{state.liveAvailable ? " · Live AI" : ""}</strong>
             <span className="muted small">
-              {state.liveAvailable ? `Replies from Claude (${state.model ?? "configured model"}).` : "Live AI isn't configured on the server yet (no API key). You can still add tasks and context by hand."}
+              {state.liveAvailable ? "Your own data, with live AI." : "Live AI isn't set up on the server yet. You can still add tasks and context by hand."}
             </span>
           </button>
           <button className={`mode-option ${demo ? "active" : ""}`} onClick={() => actions.switchWorkspace("demo")}>
@@ -184,10 +177,9 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
       </div>
 
       <div className="card">
-        <h2 className="h3">Your data{demo ? " (demo workspace)" : ""}</h2>
+        <h2 className="h3">Data{demo ? " · demo" : ""}</h2>
         <p className="muted small">
-          Download everything this workspace has stored as a file, bring it into another copy of Nikki (for example from your Mac
-          to the hosted version), or delete it permanently.
+          Export, import or permanently delete everything stored here.
         </p>
         <div className="row gap wrap">
           <button className="btn" onClick={exportData}>
@@ -346,10 +338,9 @@ function Calendars({ state, actions }: { state: AppState; actions: AppActions })
   };
   return (
     <div className="card calendars">
-      <h2 className="h3">Linked calendars</h2>
+      <h2 className="h3">Calendars</h2>
       <p className="muted small">
-        Nikki reads your calendar so meetings appear automatically and plans fit around them. It's read-only: Nikki never changes
-        your calendar. Events sync every 15 minutes for the next 30 days (all-day events are skipped).
+        Your meetings, read-only. Syncs every 15 minutes.
       </p>
       {state.calendars.length > 0 && (
         <ul className="plain-list">
@@ -452,10 +443,9 @@ function NikkiInCalendar({ state, actions }: { state: AppState; actions: AppActi
   const local = /^(localhost|127\.|\[::1\])/.test(window.location.hostname);
   return (
     <div className="card calendars">
-      <h2 className="h3">Nikki in your calendar</h2>
+      <h2 className="h3">Calendar feed</h2>
       <p className="muted small">
-        Add your confirmed plans to Google or Apple Calendar as a separate “Nikki” calendar: focus blocks and tasks for today and
-        tomorrow, meetings you added here, and tasks you planned for a day in the Week view. It updates when your plan changes.
+        Shows your confirmed plans in Google or Apple Calendar as a separate “Nikki” calendar.
       </p>
       {!token ? (
         <button className="btn primary" onClick={() => actions.mutate("POST", "/api/calendar-feed", { action: "create" })}>

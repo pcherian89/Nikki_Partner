@@ -74,26 +74,14 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
         <Avatar size={44} glow />
         <div>
           <div className="chat-title">Nikki</div>
-          <div className="chat-sub">{demo ? "Demo mode · scripted, not AI" : liveOff ? "Live AI not configured" : "Your planning partner"}</div>
+          {(demo || liveOff) && <div className="chat-sub">{demo ? "Demo mode · scripted, not AI" : "Live AI not set up"}</div>}
         </div>
-        {demo && (
-          <button
-            className="btn small ghost push-right"
-            onClick={() => {
-              if (confirm("Reset the demo? This clears all demo data (your personal data is untouched).")) {
-                actions.mutate("POST", "/api/demo/reset");
-              }
-            }}
-          >
-            Reset demo
-          </button>
-        )}
       </div>
 
       <div className="chat-scroll" aria-live="polite" ref={scrollRef}>
         {state.messages.length === 0 && !pending && (
           <div className="empty-chat">
-            <p>Tell me what's on your mind today — everything, in your own words.</p>
+            <p>What do you need to plan?</p>
           </div>
         )}
         {state.messages.map((m) => (
@@ -109,7 +97,7 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
               <button className="proposal-link" onClick={onShowPlan}>
                 <span>
                   <strong>{proposal.kind === "replan" ? "Updated plan ready" : proposal.plan.date === state.tomorrow.date ? "Plan for tomorrow ready" : "Plan ready"}</strong>
-                  <span className="muted small block">Tap to review and confirm — nothing changes until you do</span>
+                  <span className="muted small block">Review and confirm</span>
                 </span>
                 <span aria-hidden>→</span>
               </button>
@@ -124,7 +112,7 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
               </div>
             ) : (
               <div className="msg user">
-                <div className="bubble">Update my plan{pending.remainingUntil ? ` (until ${pending.remainingUntil})` : ""}</div>
+                <div className="bubble">Replan{pending.remainingUntil ? ` (until ${pending.remainingUntil})` : ""}</div>
               </div>
             )}
             <div className="msg assistant">
@@ -242,7 +230,7 @@ function Message({ m, state }: { m: ChatMessage; state: AppState }) {
         )}
         {(captured.length > 0 || meetings.length > 0) && (
           <div className="captured">
-            <span className="muted small">Saved to your list:</span>
+            <span className="muted small">Added:</span>
             <div className="chips">
               {captured.map((t) => (
                 <span key={t!.id} className={`chip static ${t!.type}`}>
@@ -259,7 +247,7 @@ function Message({ m, state }: { m: ChatMessage; state: AppState }) {
         )}
         {m.meta.notes?.length ? (
           <details className="notes">
-            <summary>App checks ({m.meta.notes.length})</summary>
+            <summary>Notes ({m.meta.notes.length})</summary>
             <ul>
               {m.meta.notes.map((n) => (
                 <li key={n}>{n}</li>

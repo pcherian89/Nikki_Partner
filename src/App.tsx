@@ -221,18 +221,11 @@ export default function App() {
               ["home", "Home"],
               ["today", "Today"],
               ["everything", "Everything"],
-              ["context", "My context"],
+              ["context", "Context"],
             ] as const
           ).map(([k, label]) => (
             <button key={k} className={`tab ${view === k ? "active" : ""}`} onClick={() => setView(k)} aria-current={view === k} aria-label={label}>
-              {k === "context" ? (
-                <>
-                  <span className="hide-phone">My c</span>
-                  <span className="show-phone">C</span>ontext
-                </>
-              ) : (
-                label
-              )}
+              {label}
             </button>
           ))}
         </nav>
@@ -248,10 +241,10 @@ export default function App() {
             <div className={`today-layout pane-${pane}`}>
               <div className="pane-switch" role="tablist">
                 <button role="tab" aria-selected={pane === "nikki"} className={pane === "nikki" ? "active" : ""} onClick={() => setPane("nikki")}>
-                  Nikki
+                  Chat
                 </button>
                 <button role="tab" aria-selected={pane === "plan"} className={pane === "plan" ? "active" : ""} onClick={() => setPane("plan")}>
-                  Today's plan{state.proposal ? <span className="dot" aria-label="proposal waiting" /> : null}
+                  Plan{state.proposal ? <span className="dot" aria-label="proposal waiting" /> : null}
                 </button>
               </div>
               <section className="col-chat" aria-label="Conversation with Nikki">
@@ -320,6 +313,7 @@ function ModeBadge({ state, onClick }: { state: AppState; onClick: () => void })
       </button>
     );
   }
+  if (state.liveAvailable) return null;
   return (
     <button
       className={`mode-badge ${state.liveAvailable ? "live" : "off"}`}

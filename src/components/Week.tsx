@@ -45,14 +45,13 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
     <>
       <div className="today-head">
         <div>
-          <div className="eyebrow">
+          <h2 className="h2">This week</h2>
+          <div className="muted small">
             {dayNum(days[0])} – {dayNum(end)}
           </div>
-          <h2 className="h2">This week</h2>
-          <div className="muted small">Rough plan by day. Exact times are set the day before.</div>
         </div>
         <button className="btn" onClick={() => actions.focusComposer("Help me spread my open tasks across this week. ")} disabled={busy}>
-          Plan my week with Nikki
+          Plan week
         </button>
       </div>
 
@@ -126,8 +125,7 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
 
       {unscheduled.length > 0 && (
         <div className="card">
-          <h3 className="h3">Not scheduled yet ({unscheduled.length})</h3>
-          <p className="muted small">Pick a day, or ask Nikki to spread them across the week.</p>
+          <h3 className="h3">Unscheduled ({unscheduled.length})</h3>
           <ul className="plain-list">
             {unscheduled.map((t) => (
               <li key={t.id} className="unscheduled-row">
@@ -153,7 +151,7 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
 
       {laterItems.length > 0 && (
         <div className="card">
-          <h3 className="h3">Later</h3>
+          <h3 className="h3">Next 30 days</h3>
           <ul className="plain-list compact">
             {laterItems.map((i) => (
               <li key={i.key} className={`agenda-item ${i.kind}`}>

@@ -44,11 +44,7 @@ export function Welcome({ state, actions, sendError }: { state: AppState; action
         <p className="eyebrow">{fmtDate(state.today)}</p>
         <h1 className="h1">{greeting}</h1>
         {returning && <DailyBrief state={state} actions={actions} summary={summary} />}
-        <p className="lead">
-          {returning
-            ? "Anything new or changed? Tell me in your own words and I'll fold it into your plan."
-            : "Tell me everything on your mind — work, commitments, ideas, half-formed plans. I'll ask a couple of questions, suggest what matters most today, and build a realistic schedule you can edit."}
-        </p>
+        {!returning && <p className="lead">Tell me what's on your plate today, and how much time you have.</p>}
       </div>
 
       <div className="welcome-input card">
@@ -69,21 +65,11 @@ export function Welcome({ state, actions, sendError }: { state: AppState; action
         {sendError && <p className="error-text" role="alert">{sendError}</p>}
         <div className="row between wrap gap">
           <div className="row gap wrap">
-            <button
-              className="btn ghost"
-              onClick={() => {
-                if (demo) submit(EXAMPLE_DUMP);
-                else {
-                  setText(EXAMPLE_DUMP);
-                  ref.current?.focus();
-                }
-              }}
-            >
-              Try an example
-            </button>
-            <button className="btn ghost" onClick={() => ref.current?.focus()}>
-              Start with my work
-            </button>
+            {demo && (
+              <button className="btn ghost" onClick={() => submit(EXAMPLE_DUMP)}>
+                Try an example
+              </button>
+            )}
           </div>
           <div className="row gap center-y">
           {!liveOff && <MicButton onText={(t) => setText((cur) => (cur ? `${cur.trimEnd()} ${t}` : t))} />}
@@ -139,15 +125,13 @@ function DailyBrief({ state, actions, summary }: { state: AppState; actions: App
   const go = () => actions.setView("today");
   return (
     <div className="brief">
-      {summary && <p className="welcome-summary">{summary}</p>}
       <div className="brief-grid">
         <button className="brief-card" onClick={go}>
           <span className="eyebrow">Focus</span>
           <strong>{plan ? (plan.focusTaskId && byId.get(plan.focusTaskId)?.title) || "No main focus set" : "No plan yet"}</strong>
-          <span className="muted small">{plan ? "Today's main focus" : "Tell me about your day below"}</span>
         </button>
         <button className="brief-card" onClick={go}>
-          <span className="eyebrow">Next</span>
+          <span className="eyebrow">Next up</span>
           <strong>{nextBlock ? (nextBlock.taskId ? byId.get(nextBlock.taskId)?.title : nextBlock.title) : plan ? "Nothing else planned" : "—"}</strong>
           <span className="muted small">{nextBlock ? fmtRange(nextBlock.start, nextBlock.end) : " "}</span>
         </button>
@@ -156,12 +140,12 @@ function DailyBrief({ state, actions, summary }: { state: AppState; actions: App
             <ProgressRing done={progress.done} total={progress.total} size={52} />
             <span>
               <span className="eyebrow">Progress</span>
-              <span className="muted small block">{progress.done === progress.total ? "All planned work done" : `${progress.total - progress.done} to go`}</span>
+              <span className="muted small block">{progress.done === progress.total ? "All done" : `${progress.total - progress.done} to go`}</span>
             </span>
           </button>
         ) : null}
         <button className="brief-card" onClick={go}>
-          <span className="eyebrow">Coming up</span>
+          <span className="eyebrow">Upcoming</span>
           {upcoming.length ? (
             <ul className="brief-list">
               {upcoming.map((m) => (

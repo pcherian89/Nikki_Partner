@@ -84,12 +84,10 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
 
   return (
     <div className="card wrapup">
-      <div className="eyebrow">Evening wrap-up</div>
-      <h3 className="h3">Close the day</h3>
-      <p className="muted small">Takes a minute. Nothing is planned for tomorrow yet. Nikki will bring this up in your morning check-in.</p>
+      <h3 className="h3">Wrap up</h3>
 
       <div className="wrap-section">
-        <div className="small strong">Done today ({done.length})</div>
+        <div className="eyebrow">Done today ({done.length})</div>
         {done.length ? (
           <ul className="plain-list compact">
             {done.map((t) => (
@@ -99,13 +97,14 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
             ))}
           </ul>
         ) : (
-          <p className="muted small">Nothing ticked off yet. That's okay, today still counts.</p>
+          <p className="muted small">Nothing marked done.</p>
         )}
       </div>
 
       {open.length > 0 && (
         <div className="wrap-section">
-          <div className="small strong">Still open — moving to tomorrow unless you change it</div>
+          <div className="eyebrow">Still open</div>
+          <p className="muted small">These move to tomorrow unless you change them.</p>
           <ul className="plain-list decisions">
             {open.map((t) => (
               <DecisionRow
@@ -124,7 +123,7 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
       )}
 
       <label className="field">
-        <span>Anything on your mind? Wins, worries, ideas for tomorrow (optional)</span>
+        <span>Notes for tomorrow (optional)</span>
         <textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
 
@@ -132,7 +131,7 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
         <label className="check-row">
           <input type="checkbox" checked={reflect} onChange={(e) => setReflect(e.target.checked)} />
           <span>
-            Ask Nikki for a short reflection{" "}
+            Send a summary to Nikki{" "}
             <span className="muted small">{state.workspace === "demo" ? "(scripted in Demo mode)" : "(one AI message)"}</span>
           </span>
         </label>
@@ -157,7 +156,7 @@ export function WrappedUpNote({ state, onEdit }: { state: AppState; onEdit: () =
     <div className="card wrapped">
       <div className="row between center-y wrap gap">
         <div>
-          <div className="eyebrow">Day wrapped up</div>
+          <div className="eyebrow">Wrapped up</div>
           <span className="small">
             {w.doneTitles.length} done{w.tomorrowTaskIds.length ? ` · ${w.tomorrowTaskIds.length} moving to tomorrow` : ""}
           </span>
@@ -175,18 +174,11 @@ export function WrappedUpNote({ state, onEdit }: { state: AppState; onEdit: () =
 export function MorningCheckIn({ state, actions }: { state: AppState; actions: AppActions }) {
   const w = state.lastWrapUp!;
   const carried = w.tomorrowTaskIds.map((id) => state.tasks.find((t) => t.id === id)).filter((t): t is Task => !!t && t.status !== "done");
-  const hour = Number(state.now.slice(0, 2));
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   return (
     <div className="card checkin">
-      <div className="eyebrow">Daily check-in</div>
-      <h3 className="h3">
-        {greeting}
-        {state.profile.name ? `, ${state.profile.name}` : ""}.
-      </h3>
+      <h3 className="h3">Check-in</h3>
       <p className="small">
-        On {fmtDate(w.date)} you finished{" "}
-        {w.doneTitles.length ? <strong>{w.doneTitles.join(", ")}</strong> : "nothing marked done"}.
+        {fmtDate(w.date)}: {w.doneTitles.length ? <>done — <strong>{w.doneTitles.join(", ")}</strong></> : "nothing marked done"}.
       </p>
       {carried.length > 0 && (
         <p className="small">
@@ -202,7 +194,7 @@ export function MorningCheckIn({ state, actions }: { state: AppState; actions: A
           )
         }
       >
-        Start my check-in with Nikki
+        Plan today
       </button>
     </div>
   );

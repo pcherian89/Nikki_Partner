@@ -129,7 +129,7 @@ export function ProposalCard({
                 : "Change to confirm"}
           </h3>
         </div>
-        <span className="pill">{stale ? "Out of date" : "Not saved yet"}</span>
+        {stale && <span className="pill">Out of date</span>}
       </div>
 
       {stale && <p className="error-text">This proposal is for an earlier day or an older plan. Ask Nikki for a fresh one.</p>}
@@ -146,7 +146,7 @@ export function ProposalCard({
             )}
             {draft.supporting.map((s) => (
               <div className="priority" key={s.taskId}>
-                <span className="tag subtle">Supporting</span>
+                <span className="tag subtle">Also today</span>
                 <strong>{tasks.get(s.taskId)?.title ?? "Unknown task"}</strong>
                 {s.why && <p className="why">{s.why}</p>}
               </div>
@@ -167,7 +167,6 @@ export function ProposalCard({
                 )}
                 <span className="block-title">
                   {b.title}
-                  {b.kind === "meeting" && <span className="tag subtle">Fixed</span>}
                 </span>
                 {b.kind !== "meeting" ? (
                   <button className="icon-btn" aria-label={`Remove ${b.title}`} onClick={() => removeBlock(b.id)}>
@@ -191,7 +190,7 @@ export function ProposalCard({
 
           {diff && diff.length > 0 && (
             <div className="diff">
-              <div className="eyebrow">Changes to your current plan</div>
+              <div className="eyebrow">Changes</div>
               <ul>
                 {diff.map((d) => (
                   <li key={d.type + d.text} className={`diff-${d.type}`}>
@@ -200,13 +199,12 @@ export function ProposalCard({
                   </li>
                 ))}
               </ul>
-              <p className="muted small">Completed work and fixed meetings stay as they are.</p>
             </div>
           )}
 
           {draft.deferred.length > 0 && (
             <details className="deferred">
-              <summary>What waits ({draft.deferred.length})</summary>
+              <summary className="section-summary">Deferred ({draft.deferred.length})</summary>
               <ul>
                 {draft.deferred.map((d) => (
                   <li key={d.taskId}>
@@ -219,7 +217,7 @@ export function ProposalCard({
 
           {(draft.reasons.length > 0 || draft.assumptions.length > 0) && (
             <details className="reasons" open={!isPhone()}>
-              <summary>Why this plan</summary>
+              <summary className="section-summary">Why</summary>
               <ul>
                 {draft.reasons.map((r) => (
                   <li key={r}>{r}</li>
@@ -237,7 +235,7 @@ export function ProposalCard({
 
       {proposal.taskChanges.length > 0 && (
         <div className="task-changes">
-          <div className="eyebrow">Waiting for your OK</div>
+          <div className="eyebrow">Confirm changes</div>
           {proposal.taskChanges.map((c) => (
             <label key={c.id} className="check-row">
               <input
@@ -264,7 +262,7 @@ export function ProposalCard({
 
       {pendingSuggestions.length > 0 && (
         <div className="suggestions">
-          <div className="eyebrow">Update My context?</div>
+          <div className="eyebrow">Context updates</div>
           {pendingSuggestions.map((s) => (
             <div key={s.id} className="suggestion">
               <div>
@@ -311,7 +309,7 @@ export function ProposalCard({
 
       {proposal.warnings.length > 0 && (
         <details className="notes">
-          <summary>Notes ({proposal.warnings.length})</summary>
+          <summary className="section-summary">Notes ({proposal.warnings.length})</summary>
           <ul>
             {proposal.warnings.map((w) => (
               <li key={w}>{w}</li>

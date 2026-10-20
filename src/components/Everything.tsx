@@ -2,8 +2,9 @@ import { useState } from "react";
 import type { AppState, Task, TaskStatus, TaskType } from "../../shared/types";
 import type { AppActions } from "../App";
 import { fmtDuration } from "../util";
-import { useCompletion } from "./Today";
-import { StepList, TaskToolButtons } from "./TaskTools";
+import { useCompletion, useMoveTask } from "./Today";
+import { StepList } from "./TaskTools";
+import { ActionSheet, MoveSheet } from "./MoveSheet";
 import { ActualTime } from "./DayRhythm";
 import { AutoTextarea } from "./AutoTextarea";
 
@@ -14,11 +15,11 @@ export function Everything({ state, actions }: { state: AppState; actions: AppAc
   const live = state.tasks;
 
   const sections: { key: string; title: string; hint: string; items: Task[] }[] = [
-    { key: "active", title: "Active actions", hint: "Things to do.", items: live.filter((t) => t.type === "action" && t.status === "open") },
-    { key: "waiting", title: "Waiting or blocked", hint: "Can't move until something else happens.", items: live.filter((t) => t.status === "waiting" || t.status === "blocked") },
-    { key: "ideas", title: "Ideas", hint: "Possibilities — not obligations. Promote one when you're ready.", items: live.filter((t) => t.type === "idea" && t.status === "open") },
-    { key: "reference", title: "Reference", hint: "Information worth keeping.", items: live.filter((t) => t.type === "reference" && t.status === "open") },
-    { key: "done", title: "Completed", hint: "", items: live.filter((t) => t.status === "done").reverse() },
+    { key: "active", title: "Actions", hint: "", items: live.filter((t) => t.type === "action" && t.status === "open") },
+    { key: "waiting", title: "Waiting", hint: "", items: live.filter((t) => t.status === "waiting" || t.status === "blocked") },
+    { key: "ideas", title: "Ideas", hint: "", items: live.filter((t) => t.type === "idea" && t.status === "open") },
+    { key: "reference", title: "Reference", hint: "", items: live.filter((t) => t.type === "reference" && t.status === "open") },
+    { key: "done", title: "Done", hint: "", items: live.filter((t) => t.status === "done").reverse() },
   ];
 
   const add = async () => {
@@ -31,7 +32,6 @@ export function Everything({ state, actions }: { state: AppState; actions: AppAc
     <div className="page">
       <div className="page-head">
         <h1 className="h2">Everything</h1>
-        <p className="muted">All your actions, ideas and notes in one place. Changes here don't call the AI.</p>
       </div>
       <form
         className="card add-row"
@@ -88,6 +88,8 @@ function TaskList({ items, state, actions, onToggle }: { items: Task[]; state: A
 function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppState; actions: AppActions; onToggle: (t: Task, d: boolean) => void }) {
   const [editing, setEditing] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  const [sheet, setSheet] = useState<"actions" | "move" | null>(null);
+  const move = useMoveTask(state, actions, onToggle);
   const [estimate, setEstimate] = useState("");
   const [f, setF] = useState({
     title: task.title,
@@ -123,52 +125,70 @@ function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppSta
             {task.project && <span className="tag subtle">{task.project}</span>}
             {task.estimateMinutes ? <span className="muted small">{fmtDuration(task.estimateMinutes)}</span> : null}
             {task.deadline && <span className="tag warn">Due {task.deadline}</span>}
-            {inPlan && <span className="tag">In today's plan</span>}
+            {inPlan && <span className="tag">Today</span>}
             {task.status === "blocked" && <span className="tag warn">Blocked</span>}
             {task.status === "waiting" && <span className="tag subtle">Waiting</span>}
           </span>
           {task.notes && !editing && <span className="muted small block">{task.notes}</span>}
           <StepList task={task} actions={actions} compact />
           {task.status === "done" && task.type === "action" && <ActualTime task={task} actions={actions} />}
-          {task.type === "action" && task.status !== "done" && <TaskToolButtons task={task} actions={actions} />}
           {state.drafts.some((d) => d.taskId === task.id) && (
             <button className="link small" onClick={() => actions.openHelper(task.id, "assist")}>
               View drafts ({state.drafts.filter((d) => d.taskId === task.id).length})
             </button>
           )}
         </div>
-        <div className="row gap task-actions">
-          {task.type === "idea" && task.status === "open" && (
-            <button className="btn small" onClick={() => setPromoting((p) => !p)}>
-              Make it an action
-            </button>
-          )}
-          {task.status !== "done" && (
-            <select
-              className="small-select"
-              value={task.status}
-              aria-label="Status"
-              onChange={(e) => actions.mutate("PATCH", `/api/tasks/${task.id}`, { status: e.target.value as TaskStatus })}
-            >
-              <option value="open">Open</option>
-              <option value="waiting">Waiting</option>
-              <option value="blocked">Blocked</option>
-              <option value="done">Done</option>
-            </select>
-          )}
-          <button className="btn small ghost" onClick={() => setEditing((e) => !e)}>
-            Edit
-          </button>
-          <button
-            className="btn small ghost"
-            onClick={() => {
-              if (confirm(`Delete “${task.title}”?${inPlan ? " It will also be removed from today's plan." : ""}`)) actions.mutate("DELETE", `/api/tasks/${task.id}`);
-            }}
-          >
-            Delete
+        <div className="task-actions">
+          <button className="icon-btn" aria-label={`Actions for ${task.title}`} onClick={() => setSheet("actions")}>
+            ⋯
           </button>
         </div>
       </div>
+      {sheet === "actions" && (
+        <ActionSheet
+          title={task.title}
+          onClose={() => setSheet(null)}
+          items={[
+            ...(task.type === "idea" && task.status === "open" ? [{ label: "Make it an action", run: () => setPromoting(true) }] : []),
+            ...(task.type === "action" && task.status !== "done"
+              ? [
+                  { label: "Move…", run: () => setSheet("move") },
+                  { label: "Break it down", run: () => actions.openHelper(task.id, "breakdown") },
+                  { label: "Help me start", run: () => actions.openHelper(task.id, "assist") },
+                ]
+              : []),
+            ...(task.status !== "done" && task.status !== "waiting"
+              ? [{ label: "Mark waiting", run: () => actions.mutate("PATCH", `/api/tasks/${task.id}`, { status: "waiting" as TaskStatus }) }]
+              : []),
+            ...(task.status !== "done" && task.status !== "blocked"
+              ? [{ label: "Mark blocked", run: () => actions.mutate("PATCH", `/api/tasks/${task.id}`, { status: "blocked" as TaskStatus }) }]
+              : []),
+            ...(task.status === "waiting" || task.status === "blocked"
+              ? [{ label: "Back to open", run: () => actions.mutate("PATCH", `/api/tasks/${task.id}`, { status: "open" as TaskStatus }) }]
+              : []),
+            { label: "Edit", run: () => setEditing(true) },
+            {
+              label: "Delete",
+              danger: true,
+              run: () => {
+                if (confirm(`Delete “${task.title}”?${inPlan ? " It will also be removed from today's plan." : ""}`)) actions.mutate("DELETE", `/api/tasks/${task.id}`);
+              },
+            },
+          ]}
+        />
+      )}
+      {sheet === "move" && (
+        <MoveSheet
+          title={task.title}
+          choices={["today", "tomorrow", "pick", "someday"]}
+          minDate={state.today}
+          onClose={() => setSheet(null)}
+          onPick={(c, d) => {
+            setSheet(null);
+            move(task, c, d);
+          }}
+        />
+      )}
       {promoting && (
         <form
           className="promote"
@@ -181,11 +201,11 @@ function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppSta
             });
             if (ok) {
               setPromoting(false);
-              actions.toast({ text: `“${task.title}” is now an action. Nikki will consider it next time you plan.` });
+              actions.toast({ text: "Moved to actions." });
             }
           }}
         >
-          <span className="small">Turn this idea into a concrete action. Roughly how long is the first step?</span>
+          <span className="small">First step (min)</span>
           <input type="number" min={5} step={5} placeholder="minutes" value={estimate} onChange={(e) => setEstimate(e.target.value)} aria-label="Estimate in minutes" />
           <button className="btn small primary">Promote</button>
           <button type="button" className="btn small ghost" onClick={() => setPromoting(false)}>

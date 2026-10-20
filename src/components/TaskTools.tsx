@@ -27,7 +27,7 @@ export function TimerButton({ task, actions }: { task: Task; actions: AppActions
       aria-pressed={running}
       title="Tracks how long this really takes, so Nikki's estimates get better"
     >
-      {running ? `Pause · ${fmtDuration(minutes)}` : minutes > 0 ? `Resume · ${fmtDuration(minutes)}` : "Start focus timer"}
+      {running ? `Pause · ${fmtDuration(minutes)}` : minutes > 0 ? `Resume · ${fmtDuration(minutes)}` : "Start timer"}
     </button>
   );
 }
@@ -116,7 +116,7 @@ export function TaskHelper({
       <div className="modal card" role="dialog" aria-modal="true" aria-label={mode === "breakdown" ? "Break it down" : "Help me start"} onClick={(e) => e.stopPropagation()}>
         <div className="row between center-y">
           <div>
-            <div className="eyebrow">{mode === "breakdown" ? "Break it down" : "Help me start"}</div>
+            <div className="eyebrow">{mode === "breakdown" ? "Steps" : "Draft"}</div>
             <h3 className="h3 modal-title">{task.title}</h3>
           </div>
           <button className="icon-btn" aria-label="Close" onClick={onClose}>

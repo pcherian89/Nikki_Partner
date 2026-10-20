@@ -106,7 +106,7 @@ export function buildIcs(db: DB, tz: string): string {
       events.push({
         uid: `${date}-${b.id}@nikki`,
         summary: `${done ? "✓ " : ""}${b.kind === "focus" ? "Focus: " : ""}${task?.title ?? b.title}`,
-        description: [plan.mainOutcome ? `Main outcome: ${plan.mainOutcome}` : "", "Planned with Nikki."].filter(Boolean).join("\n"),
+        description: "Planned with Nikki.",
         start: localToUtc(date, b.start, tz),
         end: localToUtc(date, b.end, tz),
       });
