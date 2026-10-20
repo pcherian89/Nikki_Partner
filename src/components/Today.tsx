@@ -550,24 +550,34 @@ function Checklist({ plan, tasks, onToggle, actions }: { plan: Plan; tasks: Map<
 
 function Capacity({ plan }: { plan: Plan }) {
   const c = capacity(plan);
+  if (!c.available) return null;
+  const parts = [
+    { key: "work", label: "Planned work", value: c.work },
+    { key: "break", label: "Breaks", value: c.breaks },
+    { key: "buffer", label: "Spare for overruns", value: c.buffer },
+    { key: "open", label: "Unplanned", value: c.open },
+  ].filter((p) => p.value > 0);
   return (
-    <div className="capacity-grid" aria-label="Time summary">
-      <div>
-        <span className="muted small">Available</span>
-        <strong>{fmtDuration(c.available)}</strong>
+    <div className="card capacity" aria-label="How your time adds up">
+      <div className="row between center-y wrap gap">
+        <span>
+          <strong>{fmtDuration(c.available)}</strong> <span className="muted small">free between {fmtRange(plan.window.start, plan.window.end)}</span>
+        </span>
+        {c.meetings > 0 && <span className="muted small">after {fmtDuration(c.meetings)} of meetings</span>}
       </div>
-      <div>
-        <span className="muted small">Planned work</span>
-        <strong>{fmtDuration(c.work)}</strong>
+      <div className="cap-bar" aria-hidden>
+        {parts.map((p) => (
+          <span key={p.key} className={`cap-${p.key}`} style={{ flexGrow: p.value }} />
+        ))}
       </div>
-      <div>
-        <span className="muted small">Breaks</span>
-        <strong>{fmtDuration(c.breaks)}</strong>
-      </div>
-      <div>
-        <span className="muted small">Buffer</span>
-        <strong>{fmtDuration(c.buffer)}</strong>
-      </div>
+      <ul className="cap-legend">
+        {parts.map((p) => (
+          <li key={p.key}>
+            <span className={`cap-swatch cap-${p.key}`} aria-hidden />
+            {p.label} <strong>{fmtDuration(p.value)}</strong>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

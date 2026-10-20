@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AppState, Task, TaskDraft } from "../../shared/types";
 import { api, ApiError } from "../api";
 import type { AppActions } from "../App";
@@ -84,6 +84,18 @@ export function StepList({ task, actions, compact = false }: { task: Task; actio
       {list}
     </div>
   );
+}
+
+/** A textarea that grows with its text, so long steps stay fully readable (especially on a phone). */
+function AutoTextarea({ value, onChange, className, ...rest }: { value: string; onChange: (v: string) => void; className?: string; "aria-label": string }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + 2}px`;
+  }, [value]);
+  return <textarea ref={ref} rows={1} className={className} value={value} onChange={(e) => onChange(e.target.value)} {...rest} />;
 }
 
 // ---------- the helper window ----------
@@ -198,23 +210,30 @@ function Breakdown({ task, state, actions, onClose }: { task: Task; state: AppSt
           <ol className="step-edit">
             {steps.map((s, i) => (
               <li key={i}>
-                <input
+                <AutoTextarea
+                  className="step-title"
                   value={s.title}
                   aria-label={`Step ${i + 1}`}
-                  onChange={(e) => setSteps(steps.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))}
+                  onChange={(v) => setSteps(steps.map((x, j) => (j === i ? { ...x, title: v } : x)))}
                 />
-                <input
-                  type="number"
-                  min={1}
-                  className="mins"
-                  value={s.minutes ?? ""}
-                  aria-label={`Minutes for step ${i + 1}`}
-                  placeholder="min"
-                  onChange={(e) => setSteps(steps.map((x, j) => (j === i ? { ...x, minutes: e.target.value ? Number(e.target.value) : null } : x)))}
-                />
-                <button className="icon-btn" aria-label={`Remove step ${i + 1}`} onClick={() => setSteps(steps.filter((_, j) => j !== i))}>
-                  ×
-                </button>
+                <div className="step-meta">
+                  <label className="mins-field">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      className="mins"
+                      value={s.minutes ?? ""}
+                      aria-label={`Minutes for step ${i + 1}`}
+                      placeholder="–"
+                      onChange={(e) => setSteps(steps.map((x, j) => (j === i ? { ...x, minutes: e.target.value ? Number(e.target.value) : null } : x)))}
+                    />
+                    <span className="muted small">min</span>
+                  </label>
+                  <button className="icon-btn" aria-label={`Remove step ${i + 1}`} onClick={() => setSteps(steps.filter((_, j) => j !== i))}>
+                    ×
+                  </button>
+                </div>
               </li>
             ))}
           </ol>

@@ -31,16 +31,38 @@ export function fmtDate(date: string, weekday = true) {
 
 export const blockMinutes = (b: Pick<PlanBlock, "start" | "end">) => toMin(b.end) - toMin(b.start);
 
+/**
+ * How the day's working window splits up. Overlapping meetings are counted once and
+ * clipped to the window, so free = work + breaks + buffer + open always adds up.
+ */
 export function capacity(plan: Pick<PlanDraft, "blocks" | "window" | "workBudgetMinutes">) {
+  const ws = toMin(plan.window.start);
+  const we = toMin(plan.window.end);
   const sum = (k: string[]) => plan.blocks.filter((b) => k.includes(b.kind)).reduce((s, b) => s + blockMinutes(b), 0);
-  const meetings = plan.blocks
+  const spans = plan.blocks
     .filter((b) => b.kind === "meeting")
-    .reduce((s, b) => s + Math.max(0, Math.min(toMin(b.end), toMin(plan.window.end)) - Math.max(toMin(b.start), toMin(plan.window.start))), 0);
+    .map((b) => [Math.max(toMin(b.start), ws), Math.min(toMin(b.end), we)] as const)
+    .filter(([a, b]) => b > a)
+    .sort((x, y) => x[0] - y[0]);
+  let meetings = 0;
+  let reach = ws;
+  for (const [a, b] of spans) {
+    if (b <= reach) continue;
+    meetings += b - Math.max(a, reach);
+    reach = b;
+  }
+  const window = Math.max(0, we - ws);
+  const available = Math.max(0, window - meetings);
+  const work = sum(["focus", "task"]);
+  const breaks = sum(["break"]);
+  const buffer = sum(["buffer"]);
   return {
-    available: Math.max(0, toMin(plan.window.end) - toMin(plan.window.start) - meetings),
-    work: sum(["focus", "task"]),
-    breaks: sum(["break"]),
-    buffer: sum(["buffer"]),
+    window,
+    available,
+    work,
+    breaks,
+    buffer,
+    open: Math.max(0, available - work - breaks - buffer),
     meetings,
     budget: plan.workBudgetMinutes,
   };
