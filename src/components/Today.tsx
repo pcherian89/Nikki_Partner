@@ -6,6 +6,7 @@ import { ProposalCard } from "./ProposalCard";
 import { ActualTime, doneTodayTasks, MorningCheckIn, WrappedUpNote, WrapUpPanel } from "./DayRhythm";
 import { StepList, TaskToolButtons } from "./TaskTools";
 import { isWeekProposal, Week } from "./Week";
+import { DecisionRow, MoveSheet, type MoveChoice } from "./MoveSheet";
 import { capacity, draftOf, fmtDate, fmtDuration, fmtRange, fmtTime, fromMin, taskById, toMin } from "../util";
 
 type Mode = "schedule" | "checklist";
@@ -57,23 +58,43 @@ export function useReschedule(actions: AppActions) {
   };
 }
 
-/** Done / Later today / Tomorrow / Pick a day, for a task whose planned time passed. */
-export function MissedActions({ task, state, actions, onToggle, laterToday = true }: { task: Task; state: AppState; actions: AppActions; onToggle: (t: Task, d: boolean) => void; laterToday?: boolean }) {
+/** Turns a Move… sheet choice into the server call. */
+export function useMoveTask(state: AppState, actions: AppActions, onToggle: (t: Task, d: boolean) => void) {
   const reschedule = useReschedule(actions);
+  return async (task: Task, choice: MoveChoice, date?: string) => {
+    if (choice === "done") return onToggle(task, true);
+    if (choice === "drop") {
+      const ok = await actions.mutate("DELETE", `/api/tasks/${task.id}`);
+      if (ok) actions.toast({ text: `Deleted “${task.title}”.` });
+      return;
+    }
+    if (choice === "later_today") return reschedule(task, { to: "later_today" });
+    if (choice === "someday") return reschedule(task, { to: "someday" });
+    const d = choice === "today" ? state.today : choice === "tomorrow" ? state.tomorrow.date : date;
+    if (d) return reschedule(task, { to: "date", date: d });
+  };
+}
+
+/** For a task whose planned time passed: Done, or Move… (one sheet, same words everywhere). */
+export function MissedActions({ task, state, actions, onToggle }: { task: Task; state: AppState; actions: AppActions; onToggle: (t: Task, d: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  const move = useMoveTask(state, actions, onToggle);
   return (
-    <div className="missed-actions" role="group" aria-label={`What to do with ${task.title}`}>
+    <div className="missed-actions">
       <button className="btn small" onClick={() => onToggle(task, true)}>Done</button>
-      {laterToday && <button className="btn small ghost" onClick={() => reschedule(task, { to: "later_today" })}>Later today</button>}
-      <button className="btn small ghost" onClick={() => reschedule(task, { to: "date", date: state.tomorrow.date })}>Tomorrow</button>
-      <label className="btn small ghost pick-day">
-        Pick a day
-        <input
-          type="date"
-          min={state.today}
-          aria-label={`Pick a day for ${task.title}`}
-          onChange={(e) => e.target.value && reschedule(task, { to: "date", date: e.target.value })}
+      <button className="btn small ghost" onClick={() => setOpen(true)}>Move…</button>
+      {open && (
+        <MoveSheet
+          title={task.title}
+          choices={["later_today", "tomorrow", "pick", "someday"]}
+          minDate={state.today}
+          onClose={() => setOpen(false)}
+          onPick={(c, d) => {
+            setOpen(false);
+            move(task, c, d);
+          }}
         />
-      </label>
+      )}
     </div>
   );
 }
@@ -171,7 +192,7 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
             {state.weekday} · {fmtDate(state.today, false)} · {fmtTime(state.now)} <span className="muted">({state.timezone})</span>
           </div>
           <h2 className="h2">{plan?.mainOutcome || "Today"}</h2>
-          {plan && <div className="muted small">Main outcome · plan v{plan.version}{plan.source === "user-edit" ? " (edited by you)" : ""}</div>}
+          {plan && <div className="muted small">Main outcome{plan.source === "user-edit" ? " · edited by you" : ""}</div>}
         </div>
         <div className="row gap wrap head-actions">
           {plan && (
@@ -265,7 +286,7 @@ function TomorrowBody({ state, actions, busy }: { state: AppState; actions: AppA
             {t.weekday} · {fmtDate(t.date, false)}
           </div>
           <h2 className="h2">{t.plan?.mainOutcome || "Tomorrow"}</h2>
-          {t.plan && <div className="muted small">Planned ahead · v{t.plan.version}</div>}
+          {t.plan && <div className="muted small">Planned ahead</div>}
         </div>
         {t.plan && (
           <button className="btn" onClick={() => actions.focusComposer("Let's adjust tomorrow's plan: ")} disabled={busy}>
@@ -345,7 +366,7 @@ function NextUp({
   const missedNote =
     missed > 0 ? (
       <p className="missed-note small">
-        {missed === 1 ? "1 thing" : `${missed} things`} didn't get finished in time — choose what to do with {missed === 1 ? "it" : "them"} in the schedule below.
+        {missed === 1 ? "1 task" : `${missed} tasks`} ran over — tap Done or Move… on {missed === 1 ? "it" : "them"} below.
       </p>
     ) : null;
   if (allDone) {
@@ -432,21 +453,11 @@ function Schedule({
       if (!ok) actions.toast({ text: "There isn't room to extend that block. Try “Update my plan” to rebalance the day.", tone: "error" });
     });
 
-  const reschedule = useReschedule(actions);
-  const moveTo = async (task: Task, body: RescheduleBody) => {
-    setMenu(null);
-    await reschedule(task, body);
-  };
-
-  const markBlocked = async (b: PlanBlock) => {
-    const ok = await actions.mutate("PATCH", `/api/tasks/${b.taskId}`, { status: "blocked" });
-    if (ok) {
-      setMenu(null);
-      actions.toast({ text: `“${b.title}” marked blocked. Want to rework the rest of the day?`, action: { label: "Update my plan", run: () => actions.focusComposer("I'm blocked on " + b.title + ". ") } });
-    }
-  };
+  const [moving, setMoving] = useState<Task | null>(null);
+  const move = useMoveTask(state, actions, onToggle);
 
   return (
+    <>
     <ol className="schedule">
       {plan.blocks.map((b, idx) => {
         const task = b.taskId ? tasks.get(b.taskId) : undefined;
@@ -460,7 +471,7 @@ function Schedule({
               <span>{fmtTime(state.now)}</span>
             </li>
           )}
-          <li className={`slot kind-${b.kind} ${current ? "current" : ""} ${past ? "past" : ""} ${task?.status === "done" ? "done" : ""}`}>
+          <li className={`slot kind-${b.kind} ${current ? "current" : ""} ${past ? "past" : ""} ${past && isWork && task && task.status !== "done" ? "missed" : ""} ${task?.status === "done" ? "done" : ""}`}>
             <div className="slot-time">
               {fmtTime(b.start)}
               <span className="muted">{fmtDuration(toMin(b.end) - toMin(b.start))}</span>
@@ -500,28 +511,25 @@ function Schedule({
                         ⋯
                       </button>
                       {menu === b.id && (
-                        <div className="menu" role="menu">
-                          {isWork && (
-                            <>
-                              <button role="menuitem" onClick={() => needMoreTime(b, 15)}>Need more time (+15 min)</button>
-                              <button role="menuitem" onClick={() => needMoreTime(b, 30)}>Need more time (+30 min)</button>
-                              <button role="menuitem" onClick={() => markBlocked(b)}>I'm blocked</button>
-                              {task && isToday && <button role="menuitem" onClick={() => moveTo(task, { to: "later_today" })}>Later today</button>}
-                              {task && isToday && <button role="menuitem" onClick={() => moveTo(task, { to: "date", date: state.tomorrow.date })}>Move to tomorrow</button>}
-                              {task && <button role="menuitem" onClick={() => moveTo(task, { to: "someday" })}>Take off the plan (someday)</button>}
-                            </>
-                          )}
-                          {isWork && task && (
-                            <>
-                              <button role="menuitem" onClick={() => { setMenu(null); actions.openHelper(task.id, "breakdown"); }}>Break it down</button>
-                              <button role="menuitem" onClick={() => { setMenu(null); actions.openHelper(task.id, "assist"); }}>Help me start</button>
-                            </>
-                          )}
-                          <button role="menuitem" onClick={() => { setEditing(b.id); setMenu(null); }}>Move / edit time</button>
-                          {!isWork && (
-                            <button role="menuitem" onClick={() => save((d) => { d.blocks = d.blocks.filter((x) => x.id !== b.id); })}>Remove</button>
-                          )}
-                        </div>
+                        <>
+                          <div className="menu-backdrop" onClick={() => setMenu(null)} aria-hidden />
+                          <div className="menu" role="menu">
+                            {isWork && <button role="menuitem" onClick={() => needMoreTime(b, 15)}>+15 min</button>}
+                            {isWork && task && (
+                              <button role="menuitem" onClick={() => { setMenu(null); setMoving(task); }}>Move…</button>
+                            )}
+                            {isWork && task && (
+                              <>
+                                <button role="menuitem" onClick={() => { setMenu(null); actions.openHelper(task.id, "breakdown"); }}>Break it down</button>
+                                <button role="menuitem" onClick={() => { setMenu(null); actions.openHelper(task.id, "assist"); }}>Help me start</button>
+                              </>
+                            )}
+                            <button role="menuitem" onClick={() => { setEditing(b.id); setMenu(null); }}>Edit time</button>
+                            {!isWork && (
+                              <button role="menuitem" onClick={() => save((d) => { d.blocks = d.blocks.filter((x) => x.id !== b.id); })}>Remove</button>
+                            )}
+                          </div>
+                        </>
                       )}
                     </div>
                   )}
@@ -533,6 +541,20 @@ function Schedule({
         );
       })}
     </ol>
+      {moving && (
+        <MoveSheet
+          title={moving.title}
+          choices={isToday ? ["later_today", "tomorrow", "pick", "someday"] : ["today", "pick", "someday"]}
+          minDate={state.today}
+          onClose={() => setMoving(null)}
+          onPick={(c, d) => {
+            const t = moving;
+            setMoving(null);
+            move(t, c, d);
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -771,8 +793,9 @@ function ReplanForm({ plan, state, actions, onClose, busy }: { plan: Plan; state
   );
 }
 
-const REVIEW_LABELS = { today: "Today", tomorrow: "Tomorrow", done: "Done", someday: "Someday", drop: "Delete" } as const;
-type ReviewAction = keyof typeof REVIEW_LABELS;
+type ReviewAction = "today" | "tomorrow" | "done" | "someday" | "drop";
+const REVIEW_TO_MOVE: Record<ReviewAction, MoveChoice> = { today: "today", tomorrow: "tomorrow", done: "done", someday: "someday", drop: "drop" };
+const REVIEW_SHORT: Record<ReviewAction, string> = { today: "Today", tomorrow: "Tomorrow", done: "Done", someday: "Someday", drop: "Delete" };
 
 function NewDayReview({ state, actions }: { state: AppState; actions: AppActions }) {
   const nd = state.newDay!;
@@ -792,33 +815,30 @@ function NewDayReview({ state, actions }: { state: AppState; actions: AppActions
   return (
     <div className="card new-day">
       <div className="eyebrow">Not finished</div>
-      <h3 className="h3">
-        {n === 1 ? "1 thing" : `${n} things`} from before today didn't get done.
-      </h3>
-      <p className="muted small">Choose what happens to each. Nothing changes until you save.</p>
-      <ul className="plain-list">
+      <h3 className="h3">{n === 1 ? "1 task" : `${n} tasks`} from before today didn't get done</h3>
+      <p className="muted small">They'll carry into today. Tap Change for anything that should go elsewhere.</p>
+      <ul className="plain-list decisions">
         {nd.unfinishedTaskIds.map((id) => {
           const t = tasks.get(id);
+          if (!t) return null;
           return (
-            <li key={id} className="review-row">
-              <span>
-                {t?.title}
-                {t?.rolloverCount ? <span className="muted small"> · moved {t.rolloverCount}× already</span> : null}
-              </span>
-              <div className="segmented small review-choices" role="radiogroup" aria-label={`What to do with ${t?.title}`}>
-                {(Object.keys(REVIEW_LABELS) as ReviewAction[]).map((a) => (
-                  <button key={a} type="button" role="radio" aria-checked={decisions[id] === a} className={decisions[id] === a ? "active" : ""} onClick={() => setDecisions({ ...decisions, [id]: a })}>
-                    {REVIEW_LABELS[a]}
-                  </button>
-                ))}
-              </div>
-            </li>
+            <DecisionRow
+              key={id}
+              title={t.title}
+              note={t.rolloverCount ? `moved ${t.rolloverCount}× before` : undefined}
+              value={decisions[id]}
+              labels={REVIEW_SHORT}
+              choices={["today", "tomorrow", "someday", "done", "drop"]}
+              toMove={REVIEW_TO_MOVE}
+              minDate={state.today}
+              onChange={(a) => setDecisions({ ...decisions, [id]: a })}
+            />
           );
         })}
       </ul>
       <div className="row gap wrap">
-        <button className="btn primary" onClick={() => submit()}>{state.plan ? "Save" : "Save and plan today"}</button>
-        <button className="btn ghost" onClick={() => submit(true)}>Decide later</button>
+        <button className="btn primary" onClick={() => submit()}>Looks good</button>
+        <button className="btn ghost" onClick={() => submit(true)}>Later</button>
       </div>
     </div>
   );

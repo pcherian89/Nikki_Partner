@@ -3,8 +3,11 @@ import type { AppState, Task } from "../../shared/types";
 import { api, ApiError } from "../api";
 import type { AppActions } from "../App";
 import { fmtDate, fmtDuration } from "../util";
+import { DecisionRow, type MoveChoice } from "./MoveSheet";
 
 type WrapAction = "tomorrow" | "done" | "someday" | "drop";
+const WRAP_LABELS: Record<WrapAction, string> = { tomorrow: "Tomorrow", done: "Done", someday: "Someday", drop: "Delete" };
+const WRAP_TO_MOVE: Record<WrapAction, MoveChoice> = { tomorrow: "tomorrow", done: "done", someday: "someday", drop: "drop" };
 
 function isToday(iso: string, tz: string, today: string) {
   try {
@@ -102,26 +105,19 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
 
       {open.length > 0 && (
         <div className="wrap-section">
-          <div className="small strong">Still open — what should happen?</div>
-          <ul className="plain-list">
+          <div className="small strong">Still open — moving to tomorrow unless you change it</div>
+          <ul className="plain-list decisions">
             {open.map((t) => (
-              <li key={t.id} className="review-row">
-                <span>{t.title}</span>
-                <div className="segmented small review-choices" role="radiogroup" aria-label={`What to do with ${t.title}`}>
-                  {(["tomorrow", "done", "someday", "drop"] as const).map((a) => (
-                    <button
-                      key={a}
-                      type="button"
-                      role="radio"
-                      aria-checked={decisions[t.id] === a}
-                      className={decisions[t.id] === a ? "active" : ""}
-                      onClick={() => setDecisions({ ...decisions, [t.id]: a })}
-                    >
-                      {a === "tomorrow" ? "Tomorrow" : a === "done" ? "Done" : a === "someday" ? "Someday" : "Delete"}
-                    </button>
-                  ))}
-                </div>
-              </li>
+              <DecisionRow
+                key={t.id}
+                title={t.title}
+                value={decisions[t.id]}
+                labels={WRAP_LABELS}
+                choices={["tomorrow", "someday", "done", "drop"]}
+                toMove={WRAP_TO_MOVE}
+                minDate={state.today}
+                onChange={(a) => setDecisions({ ...decisions, [t.id]: a })}
+              />
             ))}
           </ul>
         </div>
@@ -145,7 +141,7 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
       {error && <div className="error-box">{error}</div>}
       <div className="row gap wrap">
         <button className="btn primary" onClick={submit} disabled={saving || busy}>
-          {saving ? "Saving…" : "Wrap up my day"}
+          {saving ? "Saving…" : "Wrap up"}
         </button>
         <button className="btn ghost" onClick={onClose}>
           Cancel

@@ -224,8 +224,15 @@ export default function App() {
               ["context", "My context"],
             ] as const
           ).map(([k, label]) => (
-            <button key={k} className={`tab ${view === k ? "active" : ""}`} onClick={() => setView(k)} aria-current={view === k}>
-              {label}
+            <button key={k} className={`tab ${view === k ? "active" : ""}`} onClick={() => setView(k)} aria-current={view === k} aria-label={label}>
+              {k === "context" ? (
+                <>
+                  <span className="hide-phone">My c</span>
+                  <span className="show-phone">C</span>ontext
+                </>
+              ) : (
+                label
+              )}
             </button>
           ))}
         </nav>
@@ -309,7 +316,7 @@ function ModeBadge({ state, onClick }: { state: AppState; onClick: () => void })
   if (state.workspace === "demo") {
     return (
       <button className="mode-badge demo" onClick={onClick} title="Scripted replies — no AI. Click to change.">
-        Demo mode
+        Demo<span className="hide-phone"> mode</span>
       </button>
     );
   }
