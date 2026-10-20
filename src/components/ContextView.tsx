@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AppState, Profile } from "../../shared/types";
 import { api, browserTimezone } from "../api";
+import { AutoTextarea } from "./AutoTextarea";
 import type { AppActions } from "../App";
 import { Avatar } from "./Avatar";
 
@@ -81,7 +82,7 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
         </label>
         <label className="field">
           <span>Main outcome right now</span>
-          <input value={form.mainOutcome} onChange={set("mainOutcome")} placeholder="The one result that matters most this season" />
+          <AutoTextarea value={form.mainOutcome} onChange={(v) => set("mainOutcome")({ target: { value: v } })} placeholder="The one result that matters most this season" />
         </label>
         <div className="grid-3">
           <label className="field">
@@ -280,7 +281,7 @@ function ListField({ state, actions, field, title, placeholder }: { state: AppSt
                   if (v && (await save(items.map((x, j) => (j === i ? v : x))))) setEditIdx(null);
                 }}
               >
-                <input value={editText} onChange={(e) => setEditText(e.target.value)} autoFocus aria-label={`Edit ${item}`} />
+                <AutoTextarea value={editText} onChange={setEditText} submitOnEnter autoFocus aria-label={`Edit ${item}`} />
                 <button className="btn small primary">Save</button>
                 <button type="button" className="btn small ghost" onClick={() => setEditIdx(null)}>
                   Cancel
@@ -314,7 +315,7 @@ function ListField({ state, actions, field, title, placeholder }: { state: AppSt
           if (v && (await save([...items, v]))) setAdding("");
         }}
       >
-        <input value={adding} onChange={(e) => setAdding(e.target.value)} placeholder={items.length ? "Add another…" : placeholder} aria-label={`Add to ${title}`} />
+        <AutoTextarea value={adding} onChange={setAdding} submitOnEnter placeholder={items.length ? "Add another…" : placeholder} aria-label={`Add to ${title}`} />
         {adding.trim() && <button className="btn small">Add</button>}
       </form>
     </div>

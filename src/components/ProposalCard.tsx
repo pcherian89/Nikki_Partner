@@ -121,26 +121,13 @@ export function ProposalCard({
     <div className={`proposal card ${stale ? "is-stale" : ""}`}>
       <div className="proposal-head">
         <div>
-          <div className="eyebrow">
+          <h3 className="h3">
             {proposal.kind === "replan"
-              ? "Proposed update"
+              ? "Updated plan"
               : draft
-                ? draft.date === state.tomorrow.date
-                  ? `Proposed plan for tomorrow · ${state.tomorrow.weekday}`
-                  : "Proposed plan"
-                : "Suggested changes"}
-          </div>
-          {draft && (
-            <input
-              className="outcome-input"
-              value={draft.mainOutcome}
-              aria-label="Main outcome for today"
-              onChange={(e) => {
-                setDraft({ ...draft, mainOutcome: e.target.value });
-                setEdited(true);
-              }}
-            />
-          )}
+                ? `Proposed plan · ${draft.date === state.tomorrow.date ? "Tomorrow" : "Today"}`
+                : "Change to confirm"}
+          </h3>
         </div>
         <span className="pill">{stale ? "Out of date" : "Not saved yet"}</span>
       </div>

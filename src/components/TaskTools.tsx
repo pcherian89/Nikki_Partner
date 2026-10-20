@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { AutoTextarea } from "./AutoTextarea";
 import type { AppState, Task, TaskDraft } from "../../shared/types";
 import { api, ApiError } from "../api";
 import type { AppActions } from "../App";
@@ -84,18 +85,6 @@ export function StepList({ task, actions, compact = false }: { task: Task; actio
       {list}
     </div>
   );
-}
-
-/** A textarea that grows with its text, so long steps stay fully readable (especially on a phone). */
-function AutoTextarea({ value, onChange, className, ...rest }: { value: string; onChange: (v: string) => void; className?: string; "aria-label": string }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight + 2}px`;
-  }, [value]);
-  return <textarea ref={ref} rows={1} className={className} value={value} onChange={(e) => onChange(e.target.value)} {...rest} />;
 }
 
 // ---------- the helper window ----------
@@ -297,10 +286,11 @@ function Assist({ task, state, actions }: { task: Task; state: AppState; actions
           generate();
         }}
       >
-        <input
+        <AutoTextarea
           className="grow"
           value={ask}
-          onChange={(e) => setAsk(e.target.value)}
+          onChange={setAsk}
+          submitOnEnter
           placeholder="What would help? (optional) e.g. “an email asking the client for feedback”"
           aria-label="What would help"
         />

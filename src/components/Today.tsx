@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { AppState, Plan, PlanBlock, Task } from "../../shared/types";
 import { api, ApiError } from "../api";
+import { AutoTextarea } from "./AutoTextarea";
 import type { AppActions } from "../App";
 import { ProposalCard } from "./ProposalCard";
 import { ActualTime, doneTodayTasks, MorningCheckIn, WrappedUpNote, WrapUpPanel } from "./DayRhythm";
@@ -188,11 +189,8 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
     <>
       <div className="today-head">
         <div>
-          <div className="eyebrow">
-            {state.weekday} · {fmtDate(state.today, false)} · {fmtTime(state.now)} <span className="muted">({state.timezone})</span>
-          </div>
-          <h2 className="h2">{plan?.mainOutcome || "Today"}</h2>
-          {plan && <div className="muted small">Main outcome{plan.source === "user-edit" ? " · edited by you" : ""}</div>}
+          <h2 className="h2">{fmtDate(state.today)}</h2>
+          <div className="muted small">{fmtTime(state.now)}</div>
         </div>
         <div className="row gap wrap head-actions">
           {plan && (
@@ -282,11 +280,7 @@ function TomorrowBody({ state, actions, busy }: { state: AppState; actions: AppA
     <>
       <div className="today-head">
         <div>
-          <div className="eyebrow">
-            {t.weekday} · {fmtDate(t.date, false)}
-          </div>
-          <h2 className="h2">{t.plan?.mainOutcome || "Tomorrow"}</h2>
-          {t.plan && <div className="muted small">Planned ahead</div>}
+          <h2 className="h2">{fmtDate(t.date)}</h2>
         </div>
         {t.plan && (
           <button className="btn" onClick={() => actions.focusComposer("Let's adjust tomorrow's plan: ")} disabled={busy}>
@@ -571,7 +565,7 @@ function BlockEditor({ block, onSave, onCancel }: { block: PlanBlock; onSave: (p
         if (!invalid) onSave({ start, end, title: title.trim() || block.title });
       }}
     >
-      <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Block title" />
+      <AutoTextarea value={title} onChange={setTitle} submitOnEnter aria-label="Block title" />
       <div className="row gap center-y wrap">
         <input type="time" value={start} onChange={(e) => setStart(e.target.value)} aria-label="Start" />
         <span>–</span>
@@ -783,7 +777,7 @@ function ReplanForm({ plan, state, actions, onClose, busy }: { plan: Plan; state
       </label>
       <label className="field">
         <span>Anything new? (optional)</span>
-        <input value={note} placeholder="e.g. The client call ran long; I'm low on energy" onChange={(e) => setNote(e.target.value)} />
+        <AutoTextarea value={note} placeholder="e.g. The client call ran long; I'm low on energy" onChange={setNote} />
       </label>
       <div className="row gap">
         <button className="btn primary" disabled={!until || busy}>Propose an update</button>

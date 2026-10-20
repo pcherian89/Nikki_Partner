@@ -5,6 +5,7 @@ import { fmtDuration } from "../util";
 import { useCompletion } from "./Today";
 import { StepList, TaskToolButtons } from "./TaskTools";
 import { ActualTime } from "./DayRhythm";
+import { AutoTextarea } from "./AutoTextarea";
 
 export function Everything({ state, actions }: { state: AppState; actions: AppActions }) {
   const [title, setTitle] = useState("");
@@ -39,7 +40,7 @@ export function Everything({ state, actions }: { state: AppState; actions: AppAc
           add();
         }}
       >
-        <input placeholder="Add something…" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="New item title" />
+        <AutoTextarea placeholder="Add something…" value={title} onChange={setTitle} submitOnEnter aria-label="New item title" />
         <select value={type} onChange={(e) => setType(e.target.value as TaskType)} aria-label="Item type">
           <option value="action">Action</option>
           <option value="idea">Idea</option>
@@ -202,7 +203,7 @@ function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppSta
         >
           <label className="field">
             <span>Title</span>
-            <input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
+            <AutoTextarea value={f.title} onChange={(v) => setF({ ...f, title: v })} submitOnEnter />
           </label>
           <div className="grid-3">
             <label className="field">

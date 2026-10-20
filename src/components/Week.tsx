@@ -77,7 +77,7 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
               <div className="week-items">
                 {dayPlan && (
                   <button className="week-plan" onClick={() => onOpenDay(i === 0 ? "today" : "tomorrow")}>
-                    <span className="tag">Plan</span> {dayPlan.mainOutcome || "Confirmed plan"} →
+                    <span className="tag">Plan</span> View the plan →
                   </button>
                 )}
                 {meetings.map((m) => (

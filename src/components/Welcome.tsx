@@ -19,7 +19,7 @@ export function Welcome({ state, actions, sendError }: { state: AppState; action
   const greeting = returning ? (name ? `Welcome back, ${name}.` : "Welcome back.") : name ? `Hi ${name}, I'm Nikki.` : "Hi, I'm Nikki.";
   const openActions = state.tasks.filter((t) => t.type === "action" && t.status === "open").length;
   const summary = state.plan
-    ? `Your plan for today is confirmed${state.plan.mainOutcome ? ` — main outcome: ${state.plan.mainOutcome}` : ""}.`
+    ? "Your plan for today is set."
     : state.proposal?.plan
       ? "I have a proposed plan waiting for you to review."
       : openActions
@@ -143,7 +143,7 @@ function DailyBrief({ state, actions, summary }: { state: AppState; actions: App
       <div className="brief-grid">
         <button className="brief-card" onClick={go}>
           <span className="eyebrow">Focus</span>
-          <strong>{plan ? (plan.focusTaskId ? byId.get(plan.focusTaskId)?.title : plan.mainOutcome) || plan.mainOutcome : "No plan yet"}</strong>
+          <strong>{plan ? (plan.focusTaskId && byId.get(plan.focusTaskId)?.title) || "No main focus set" : "No plan yet"}</strong>
           <span className="muted small">{plan ? "Today's main focus" : "Tell me about your day below"}</span>
         </button>
         <button className="brief-card" onClick={go}>
