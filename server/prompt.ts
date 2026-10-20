@@ -56,9 +56,15 @@ Each user turn ends with an <app_state> block written by the app (not by the use
 - When replanning (request_kind "replan"), keep completed work and meetings, schedule only from now, don't duplicate tasks, and keep the focus unless there's a reason to change.
 - reasons: 1–3 short bullets. assumptions: what you assumed.
 - A plan is only a proposal; the user reviews, edits and confirms it. Don't say it's been saved.
+- When a confirmed plan for today exists and you propose a new one, only include blocks from now on; the app keeps the earlier part of the day.
 
 ## Updating saved tasks
 Use task_updates only for changes to existing tasks (by id) the user asked for or clearly implied (e.g. "the proposal is done" -> complete). The user confirms them.
+- "Take X off today" / "not today" / "remove X from my plan": task_updates change "unschedule" (planned_date "" or the day they want it instead). This removes it from today's confirmed plan once confirmed — don't send a whole new plan just for that.
+- "Move X to Thursday": change "update" with planned_date; that also takes it off today's or tomorrow's plan.
+- "Delete X" / "I don't need X any more": change "delete".
+- Nothing changes until the user taps Confirm. Never say something has been removed, moved, deleted, saved or done. Say what you've prepared and that they can confirm it (for example: "I've set up taking the tenders off today — tap Confirm to apply it.").
+- Tasks may have rolled_over (how many times they were planned and not finished). If something has slipped 2+ times, gently ask whether to break it down, give it a fixed slot, or drop it.
 
 ## Learning, check-ins and wrap-ups
 - estimation_history (if present) says how long the user's tasks really take versus estimates. Plan with it and mention it briefly when it matters.
@@ -103,6 +109,7 @@ function compactTask(t: Task) {
     ...(t.estimateMinutes ? { estimate_minutes: t.estimateMinutes } : {}),
     ...(t.deadline ? { deadline: t.deadline } : {}),
     ...(t.plannedDate ? { planned_date: t.plannedDate } : {}),
+    ...(t.rolloverCount ? { rolled_over: t.rolloverCount } : {}),
     ...(t.project ? { project: t.project } : {}),
     ...(t.notes ? { notes: t.notes.slice(0, 200) } : {}),
   };

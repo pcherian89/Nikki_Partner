@@ -31,7 +31,9 @@ import {
   lastWrapUpBefore,
   saveWrapUp,
   addMessage,
+  getTask,
 } from "./db.js";
+import { freeSegments } from "./scheduler.js";
 import { getProvider } from "./provider/index.js";
 import { estimationInsight } from "./learning.js";
 import { feedInfo } from "./calendar.js";
@@ -55,18 +57,23 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined):
   let proposal = latestPendingProposal(db);
   if (proposal && proposal.date < now.date && proposal.plan) proposal = { ...proposal, status: "stale" };
 
+  // Unfinished work from earlier days: tasks in the last plan (unless a wrap-up already decided)
+  // and open actions whose planned day has passed. Shown once a day until reviewed.
   let newDay: AppState["newDay"] = null;
-  if (!plan && getSetting(db, "review_done") !== now.date) {
+  if (getSetting(db, "review_done") !== now.date) {
+    const ids = new Set<string>();
     const last = latestPlanBefore(db, now.date);
-    // A wrap-up on that day already decided what happens to unfinished work.
     if (last && !wrapUpFor(db, last.date)) {
-      const ids = new Set<string>();
       for (const b of last.blocks) if (b.taskId && WORK_KINDS.has(b.kind)) ids.add(b.taskId);
       if (last.focusTaskId) ids.add(last.focusTaskId);
       last.supporting.forEach((s) => ids.add(s.taskId));
-      const unfinished = tasks.filter((t) => ids.has(t.id) && t.status !== "done").map((t) => t.id);
-      if (unfinished.length) newDay = { lastPlanDate: last.date, unfinishedTaskIds: unfinished };
     }
+    for (const t of tasks) if (t.type === "action" && t.plannedDate && t.plannedDate < now.date) ids.add(t.id);
+    const inTodayPlan = new Set(plan?.blocks.map((b) => b.taskId).filter(Boolean) as string[]);
+    const unfinished = tasks
+      .filter((t) => ids.has(t.id) && t.status !== "done" && !inTodayPlan.has(t.id) && !(t.plannedDate && t.plannedDate >= now.date))
+      .map((t) => t.id);
+    if (unfinished.length) newDay = { lastPlanDate: last?.date ?? addDays(now.date, -1), unfinishedTaskIds: unfinished };
   }
   const messages = recentMessages(db, 80);
   return {
@@ -194,7 +201,7 @@ export function confirmProposal(
     const accepted = new Set(opts.acceptedTaskChangeIds ?? p.taskChanges.map((c) => c.id));
     for (const c of p.taskChanges) {
       if (!accepted.has(c.id)) continue;
-      applyTaskChange(db, c);
+      applyTaskChange(db, c, { today: now.date, skipPlanDate: p.plan?.date ?? null });
     }
 
     if (p.plan) {
@@ -255,7 +262,13 @@ export function discardProposal(db: DB, id: string) {
 function applyTaskChange(
   db: DB,
   c: { taskId: string; change: string; title: string | null; estimateMinutes: number | null; deadline: string | null; plannedDate?: string | null; notes: string | null },
+  days: { today: string; skipPlanDate: string | null },
 ) {
+  const tomorrow = addDays(days.today, 1);
+  // Keep confirmed plans in step with the change. The plan being confirmed in the same step is replaced anyway.
+  const takeOff = (dates: string[], why: string) => {
+    for (const d of dates) if (d !== days.skipPlanDate) removeTaskFromPlan(db, d, c.taskId, why);
+  };
   switch (c.change) {
     case "update": {
       const patch: Partial<Task> = {};
@@ -265,8 +278,13 @@ function applyTaskChange(
       if (c.plannedDate) patch.plannedDate = c.plannedDate;
       if (c.notes) patch.notes = c.notes;
       updateTask(db, c.taskId, patch);
+      if (c.plannedDate) takeOff([days.today, tomorrow].filter((d) => d !== c.plannedDate), `Moved to ${c.plannedDate}.`);
       break;
     }
+    case "unschedule":
+      updateTask(db, c.taskId, { plannedDate: c.plannedDate && c.plannedDate > days.today ? c.plannedDate : null });
+      takeOff([days.today], "You took this off today.");
+      break;
     case "complete":
       updateTask(db, c.taskId, { status: "done" });
       break;
@@ -281,8 +299,125 @@ function applyTaskChange(
       break;
     case "delete":
       deleteTask(db, c.taskId);
+      takeOff([days.today, tomorrow], "Deleted.");
       break;
   }
+}
+
+/**
+ * Takes a task off a day's confirmed plan: its blocks, focus and supporting slots.
+ * The work budget shrinks by the removed time so the numbers keep adding up.
+ */
+export function removeTaskFromPlan(db: DB, date: string, taskId: string, why: string): boolean {
+  const plan = currentPlan(db, date);
+  if (!plan) return false;
+  const inPlan = plan.blocks.some((b) => b.taskId === taskId) || plan.focusTaskId === taskId || plan.supporting.some((s) => s.taskId === taskId);
+  if (!inPlan) return false;
+  const { id: _i, version, status: _s, createdAt: _c, proposalId: _p, source: _so, ...draft } = plan;
+  const removed = draft.blocks.filter((b) => b.taskId === taskId && WORK_KINDS.has(b.kind)).reduce((s, b) => s + toMinutes(b.end) - toMinutes(b.start), 0);
+  const stillExists = !!getTask(db, taskId);
+  savePlanVersion(
+    db,
+    {
+      ...draft,
+      focusTaskId: draft.focusTaskId === taskId ? null : draft.focusTaskId,
+      supporting: draft.supporting.filter((s) => s.taskId !== taskId),
+      deferred: [...draft.deferred.filter((s) => s.taskId !== taskId), ...(stillExists ? [{ taskId, why }] : [])],
+      blocks: draft.blocks.filter((b) => b.taskId !== taskId),
+      workBudgetMinutes: Math.max(0, draft.workBudgetMinutes - removed),
+    },
+    { expectedVersion: version, proposalId: null, source: "user-edit" },
+  );
+  return true;
+}
+
+export type RescheduleInput = { to: "later_today" } | { to: "date"; date: string } | { to: "someday" };
+
+/**
+ * Direct user action for work that didn't get done: fit it into a free gap later today,
+ * move it to another day, or take it off the calendar ("someday"). Applies immediately.
+ */
+export function rescheduleTask(db: DB, taskId: string, input: RescheduleInput, timezone: string) {
+  const task = getTask(db, taskId);
+  if (!task) throw new UserFacingError("Task not found.", 404, "not_found");
+  const now = localNow(timezone);
+  return db.transaction(() => {
+    if (input.to === "later_today") {
+      const plan = currentPlan(db, now.date);
+      if (!plan) throw new UserFacingError("There's no plan for today to fit it into. Ask Nikki to plan today.");
+      // Only the part whose time has passed moves; anything still coming up stays where it is.
+      const nowMin = toMinutes(now.time);
+      const own = plan.blocks.filter((b) => b.taskId === taskId && WORK_KINDS.has(b.kind));
+      const missed = own.filter((b) => toMinutes(b.end) <= nowMin);
+      const missedMinutes = missed.reduce((s, b) => s + toMinutes(b.end) - toMinutes(b.start), 0);
+      if (own.length && !missed.length) return { message: `“${task.title}” is already coming up later today.` };
+      const need = Math.max(15, Math.min(240, missedMinutes || task.estimateMinutes || 30));
+      const others = plan.blocks.filter((b) => !missed.includes(b));
+      const from = Math.max(toMinutes(plan.window.start), Math.ceil(toMinutes(now.time) / 5) * 5);
+      const busy = others.map((b) => ({ start: b.start, end: b.end })).sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+      // Fill the next free gaps (at least 15 minutes each) until the missed time fits.
+      const pieces: [number, number][] = [];
+      let left = need;
+      for (const [s, e] of freeSegments(from, toMinutes(plan.window.end), busy)) {
+        if (left <= 0) break;
+        if (e - s < 15) continue;
+        const take = Math.min(left, e - s);
+        pieces.push([s, s + take]);
+        left -= take;
+      }
+      if (left > 0) {
+        throw new UserFacingError(
+          `There isn't ${need} minutes free in the rest of today's plan. Move it to tomorrow, or ask Nikki to rework the day.`,
+          422,
+          "no_room",
+        );
+      }
+      const { id: _i, version, status: _s, createdAt: _c, proposalId: _p, source: _so, ...draft } = plan;
+      const kind = own.some((b) => b.kind === "focus") ? "focus" : "task";
+      const added: PlanBlock[] = pieces.map(([s, e]) => ({
+        id: newId("b"),
+        start: fromMinutes(s),
+        end: fromMinutes(e),
+        kind,
+        taskId,
+        meetingId: null,
+        title: task.title,
+      }));
+      const blocks = sortBlocks([...others, ...added]);
+      const work = blocks.filter((b) => WORK_KINDS.has(b.kind)).reduce((s, b) => s + toMinutes(b.end) - toMinutes(b.start), 0);
+      const final: PlanDraft = {
+        ...draft,
+        blocks,
+        deferred: draft.deferred.filter((d) => d.taskId !== taskId),
+        workBudgetMinutes: Math.max(draft.workBudgetMinutes, work),
+      };
+      const { meetings } = withMeetingBlocks(db, now.date, blocks);
+      const errors = validatePlanDraft(final, { meetings, tasks: taskMap(db) });
+      if (errors.length) throw new UserFacingError("That doesn't fit today's plan.", 422, "invalid_plan", errors);
+      savePlanVersion(db, final, { expectedVersion: version, proposalId: null, source: "user-edit" });
+      updateTask(db, taskId, { plannedDate: now.date, status: task.status === "done" ? "done" : "open" });
+      return { message: `Moved “${task.title}” to ${added[0].start}.` };
+    }
+    if (input.to === "date") {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || input.date < now.date) throw new UserFacingError("Pick today or a later date.");
+      const wasDue = task.plannedDate != null && task.plannedDate <= now.date;
+      const inTodayPlan = !!currentPlan(db, now.date)?.blocks.some((b) => b.taskId === taskId);
+      if (input.date !== now.date) removeTaskFromPlan(db, now.date, taskId, `Moved to ${input.date}.`);
+      const tomorrow = addDays(now.date, 1);
+      if (input.date !== tomorrow) removeTaskFromPlan(db, tomorrow, taskId, `Moved to ${input.date}.`);
+      const slipped = input.date > now.date && (wasDue || inTodayPlan);
+      updateTask(db, taskId, {
+        plannedDate: input.date,
+        status: task.status === "done" ? "done" : "open",
+        rolloverCount: task.rolloverCount + (slipped ? 1 : 0),
+      });
+      return { message: input.date === now.date ? `“${task.title}” is on for today.` : `Moved “${task.title}” to ${input.date}.` };
+    }
+    removeTaskFromPlan(db, now.date, taskId, "Moved to someday.");
+    removeTaskFromPlan(db, addDays(now.date, 1), taskId, "Moved to someday.");
+    updateTask(db, taskId, { plannedDate: null });
+    return { message: `“${task.title}” is off the calendar. It stays in Everything.` };
+  })();
 }
 
 /** Direct user edit of today's confirmed plan (move/extend/edit/remove blocks). */
@@ -306,16 +441,30 @@ export function editPlan(db: DB, input: { expectedVersion: number; plan: unknown
   }
 }
 
-export function reviewNewDay(db: DB, decisions: { taskId: string; action: "keep" | "done" | "park" | "drop" }[], timezone: string) {
+export type ReviewAction = "today" | "tomorrow" | "done" | "someday" | "drop";
+
+/** Morning review of unfinished work. Direct user decisions, applied immediately. */
+export function reviewNewDay(db: DB, decisions: { taskId: string; action: ReviewAction }[], timezone: string) {
   const today = localNow(timezone).date;
   db.transaction(() => {
     for (const d of decisions) {
+      const t = getTask(db, d.taskId);
+      if (!t) continue;
       if (d.action === "done") updateTask(db, d.taskId, { status: "done" });
-      else if (d.action === "park") updateTask(db, d.taskId, { type: "idea", status: "open" });
-      else if (d.action === "drop") deleteTask(db, d.taskId);
+      else if (d.action === "today") updateTask(db, d.taskId, { plannedDate: today, status: "open", rolloverCount: t.rolloverCount + 1 });
+      else if (d.action === "tomorrow") rescheduleTask(db, d.taskId, { to: "date", date: addDays(today, 1) }, timezone);
+      else if (d.action === "someday") rescheduleTask(db, d.taskId, { to: "someday" }, timezone);
+      else if (d.action === "drop") deleteTaskEverywhere(db, d.taskId, today);
     }
     setSetting(db, "review_done", today);
   })();
+}
+
+/** Deletes a task and takes it off today's and tomorrow's plans. */
+export function deleteTaskEverywhere(db: DB, taskId: string, today: string) {
+  deleteTask(db, taskId);
+  removeTaskFromPlan(db, today, taskId, "Deleted.");
+  removeTaskFromPlan(db, addDays(today, 1), taskId, "Deleted.");
 }
 
 
@@ -362,16 +511,18 @@ export function doneToday(db: DB, timezone: string) {
   );
 }
 
-export type WrapDecision = { taskId: string; action: "tomorrow" | "done" | "park" | "drop" };
+export type WrapDecision = { taskId: string; action: "tomorrow" | "done" | "someday" | "drop" };
 
 /** Evening wrap-up: applies decisions about unfinished work and saves a journal entry. No model call. */
 export function wrapUpDay(db: DB, input: { decisions: WrapDecision[]; note: string }, timezone: string) {
   const today = localNow(timezone).date;
   return db.transaction(() => {
     for (const d of input.decisions) {
+      if (!getTask(db, d.taskId)) continue;
       if (d.action === "done") updateTask(db, d.taskId, { status: "done" });
-      else if (d.action === "park") updateTask(db, d.taskId, { type: "idea", status: "open" });
-      else if (d.action === "drop") deleteTask(db, d.taskId);
+      else if (d.action === "tomorrow") rescheduleTask(db, d.taskId, { to: "date", date: addDays(today, 1) }, timezone);
+      else if (d.action === "someday") rescheduleTask(db, d.taskId, { to: "someday" }, timezone);
+      else if (d.action === "drop") deleteTaskEverywhere(db, d.taskId, today);
     }
     const done = doneToday(db, timezone);
     const tomorrow = input.decisions.filter((d) => d.action === "tomorrow").map((d) => d.taskId);
@@ -385,7 +536,7 @@ export function wrapUpDay(db: DB, input: { decisions: WrapDecision[]; note: stri
     const parts = [
       `${done.length} done`,
       tomorrow.length ? `${tomorrow.length} moving to tomorrow` : "",
-      input.decisions.filter((d) => d.action === "park").length ? `${input.decisions.filter((d) => d.action === "park").length} parked` : "",
+      input.decisions.filter((d) => d.action === "someday").length ? `${input.decisions.filter((d) => d.action === "someday").length} for someday` : "",
       input.decisions.filter((d) => d.action === "drop").length ? `${input.decisions.filter((d) => d.action === "drop").length} dropped` : "",
     ].filter(Boolean);
     addMessage(db, { role: "assistant", text: `Day wrapped up: ${parts.join(", ")}.`, meta: { system: true, kind: "wrapup" } });

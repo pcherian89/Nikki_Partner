@@ -51,8 +51,11 @@ import {
   reviewNewDay,
   wrapUpDay,
   rebuildPlanMeetings,
+  deleteTaskEverywhere,
+  removeTaskFromPlan,
+  rescheduleTask,
 } from "./planOps.js";
-import { isValidDate, isValidTime, isValidTimeZone, localNow } from "./time.js";
+import { addDays, isValidDate, isValidTime, isValidTimeZone, localNow } from "./time.js";
 import { validateMeeting, validatePlanDraft } from "./validate.js";
 
 export const app = express();
@@ -359,9 +362,35 @@ app.patch(
   h((req, res) => {
     const c = ctx(req);
     const body = parse(TaskFields.partial(), req.body);
-    const task = updateTask(c.db, String(req.params.id), body);
+    const id = String(req.params.id);
+    const task = c.db.transaction(() => {
+      const t = updateTask(c.db, id, body);
+      // Planning it for another day takes it off today's / tomorrow's plan.
+      if (t && body.plannedDate !== undefined) {
+        const today = localNow(c.tz).date;
+        for (const d of [today, addDays(today, 1)]) if (d !== body.plannedDate) removeTaskFromPlan(c.db, d, id, body.plannedDate ? `Moved to ${body.plannedDate}.` : "Moved to someday.");
+      }
+      return t;
+    })();
     if (!task) throw new UserFacingError("Task not found.", 404, "not_found");
     res.json({ state: state(req, c), task });
+  }),
+);
+
+app.post(
+  "/api/tasks/:id/reschedule",
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(
+      z.discriminatedUnion("to", [
+        z.object({ to: z.literal("later_today") }),
+        z.object({ to: z.literal("date"), date: z.string().refine(isValidDate, "Use YYYY-MM-DD") }),
+        z.object({ to: z.literal("someday") }),
+      ]),
+      req.body,
+    );
+    const r = rescheduleTask(c.db, String(req.params.id), body, c.tz);
+    res.json({ state: state(req, c), message: r.message });
   }),
 );
 
@@ -370,24 +399,8 @@ app.delete(
   h((req, res) => {
     const c = ctx(req);
     if (!getTask(c.db, String(req.params.id))) throw new UserFacingError("Task not found.", 404, "not_found");
-    const today = localNow(c.tz).date;
-    const plan = currentPlan(c.db, today);
-    deleteTask(c.db, String(req.params.id));
-    // Keep today's plan consistent: drop blocks for the deleted task.
-    if (plan && plan.blocks.some((b) => b.taskId === String(req.params.id))) {
-      const { id: _i, version, status: _s, createdAt: _c, proposalId: _p, source: _so, ...draft } = plan;
-      savePlanVersion(
-        c.db,
-        {
-          ...draft,
-          focusTaskId: draft.focusTaskId === String(req.params.id) ? null : draft.focusTaskId,
-          supporting: draft.supporting.filter((s) => s.taskId !== String(req.params.id)),
-          deferred: draft.deferred.filter((s) => s.taskId !== String(req.params.id)),
-          blocks: draft.blocks.filter((b) => b.taskId !== String(req.params.id)),
-        },
-        { expectedVersion: version, proposalId: null, source: "user-edit" },
-      );
-    }
+    // Also takes it off today's and tomorrow's plans, so nothing points at a deleted task.
+    c.db.transaction(() => deleteTaskEverywhere(c.db, String(req.params.id), localNow(c.tz).date))();
     res.json({ state: state(req, c) });
   }),
 );
@@ -473,7 +486,7 @@ app.post(
     const c = ctx(req);
     const body = parse(
       z.object({
-        decisions: z.array(z.object({ taskId: z.string(), action: z.enum(["tomorrow", "done", "park", "drop"]) })).max(100),
+        decisions: z.array(z.object({ taskId: z.string(), action: z.enum(["tomorrow", "done", "someday", "drop"]) })).max(100),
         note: z.string().max(4000).default(""),
       }),
       req.body,
@@ -564,7 +577,7 @@ app.post(
   h((req, res) => {
     const c = ctx(req);
     const body = parse(
-      z.object({ decisions: z.array(z.object({ taskId: z.string(), action: z.enum(["keep", "done", "park", "drop"]) })).max(100) }),
+      z.object({ decisions: z.array(z.object({ taskId: z.string(), action: z.enum(["today", "tomorrow", "done", "someday", "drop"]) })).max(100) }),
       req.body,
     );
     reviewNewDay(c.db, body.decisions, c.tz);

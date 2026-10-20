@@ -154,6 +154,7 @@ function migrate(db: DB) {
   if (!cols.has("spent_minutes")) db.exec("ALTER TABLE tasks ADD COLUMN spent_minutes INTEGER NOT NULL DEFAULT 0");
   if (!cols.has("timer_started_at")) db.exec("ALTER TABLE tasks ADD COLUMN timer_started_at TEXT");
   if (!cols.has("planned_date")) db.exec("ALTER TABLE tasks ADD COLUMN planned_date TEXT");
+  if (!cols.has("rollover_count")) db.exec("ALTER TABLE tasks ADD COLUMN rollover_count INTEGER NOT NULL DEFAULT 0");
   const mcols = new Set((db.prepare("PRAGMA table_info(meetings)").all() as { name: string }[]).map((c) => c.name));
   if (!mcols.has("source")) db.exec("ALTER TABLE meetings ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
   if (!mcols.has("feed_id")) db.exec("ALTER TABLE meetings ADD COLUMN feed_id TEXT");
@@ -276,6 +277,7 @@ interface TaskRow {
   spent_minutes: number;
   timer_started_at: string | null;
   planned_date: string | null;
+  rollover_count: number | null;
 }
 
 const rowToTask = (r: TaskRow, steps: TaskStep[] = []): Task => ({
@@ -295,6 +297,7 @@ const rowToTask = (r: TaskRow, steps: TaskStep[] = []): Task => ({
   actualMinutes: r.actual_minutes,
   spentMinutes: r.spent_minutes ?? 0,
   timerStartedAt: r.timer_started_at,
+  rolloverCount: r.rollover_count ?? 0,
   steps,
 });
 
@@ -434,13 +437,14 @@ export function createTask(
     actualMinutes: t.actualMinutes ?? null,
     spentMinutes: 0,
     timerStartedAt: null,
+    rolloverCount: 0,
     steps: [],
   };
   if (t.createdAt) task.createdAt = task.updatedAt = t.createdAt;
   db.prepare(
     `INSERT INTO tasks (id, title, notes, type, status, estimate_minutes, deadline, planned_date, project, created_at, updated_at, completed_at, source)
      VALUES (@id, @title, @notes, @type, @status, @estimateMinutes, @deadline, @plannedDate, @project, @createdAt, @updatedAt, @completedAt, @source)`,
-  ).run({ ...task, steps: undefined, actualMinutes: undefined, spentMinutes: undefined, timerStartedAt: undefined });
+  ).run({ ...task, steps: undefined, actualMinutes: undefined, spentMinutes: undefined, timerStartedAt: undefined, rolloverCount: undefined });
   return task;
 }
 
@@ -462,7 +466,7 @@ export function updateTask(db: DB, id: string, patch: Partial<Task>): Task | nul
   db.prepare(
     `UPDATE tasks SET title=@title, notes=@notes, type=@type, status=@status, estimate_minutes=@estimateMinutes,
      deadline=@deadline, planned_date=@plannedDate, project=@project, updated_at=@updatedAt, completed_at=@completedAt,
-     actual_minutes=@actualMinutes, spent_minutes=@spentMinutes, timer_started_at=@timerStartedAt WHERE id=@id`,
+     actual_minutes=@actualMinutes, spent_minutes=@spentMinutes, timer_started_at=@timerStartedAt, rollover_count=@rolloverCount WHERE id=@id`,
   ).run({ ...next, steps: undefined });
   return next;
 }

@@ -27,6 +27,8 @@ export interface Task {
   spentMinutes: number;
   /** Set while the focus timer is running. */
   timerStartedAt: string | null;
+  /** How many times this was planned for a day and not finished (moved on instead). */
+  rolloverCount: number;
   steps: TaskStep[];
 }
 
@@ -152,7 +154,7 @@ export interface Plan extends PlanDraft {
 export interface TaskChange {
   id: string;
   taskId: string;
-  change: "update" | "complete" | "waiting" | "blocked" | "reopen" | "delete";
+  change: "update" | "complete" | "waiting" | "blocked" | "reopen" | "delete" | "unschedule";
   title: string | null;
   estimateMinutes: number | null;
   deadline: string | null;

@@ -244,14 +244,144 @@ test("new day: offers to review unfinished work, then clears after review", asyn
   const [a, b, c] = st.newDay.unfinishedTaskIds;
   const r = await api("POST", "/api/review", {
     decisions: [
-      { taskId: a, action: "keep" },
+      { taskId: a, action: "today" },
       { taskId: b, action: "done" },
-      { taskId: c, action: "park" },
+      { taskId: c, action: "someday" },
     ],
   });
   assert.equal(r.json.state.newDay, null);
-  assert.equal(r.json.state.tasks.find((t: any) => t.id === b).status, "done");
-  assert.equal(r.json.state.tasks.find((t: any) => t.id === c).type, "idea");
+  const task = (id: string) => r.json.state.tasks.find((t: any) => t.id === id);
+  assert.equal(task(a).plannedDate, "2026-10-06");
+  assert.equal(task(a).rolloverCount, 1);
+  assert.equal(task(b).status, "done");
+  assert.equal(task(c).plannedDate, null);
+  assert.equal(task(c).type, "action", "someday keeps it as an action, just unscheduled");
+});
+
+test("new day: also shows open tasks whose planned day passed, even when today is already planned", async () => {
+  const t = (await api("POST", "/api/tasks", { title: "Send the tender docs", plannedDate: "2026-10-05" })).json.task;
+  process.env.NIKKI_FAKE_NOW = "2026-10-07T07:30:00Z";
+  const st = (await api("GET", "/api/state")).json.state;
+  assert.deepEqual(st.newDay.unfinishedTaskIds, [t.id]);
+  const r = await api("POST", "/api/review", { decisions: [{ taskId: t.id, action: "tomorrow" }] });
+  const after = r.json.state.tasks.find((x: any) => x.id === t.id);
+  assert.equal(after.plannedDate, "2026-10-08");
+  assert.equal(after.rolloverCount, 1);
+});
+
+test("unfinished work: later today / another day / someday apply straight away and keep the plan consistent", async () => {
+  const s = await demoPlan();
+  await api("POST", `/api/proposals/${s.proposal.id}/confirm`, {});
+  const plan = (await api("GET", "/api/state")).json.state.plan;
+  const first = plan.blocks.find((b: any) => b.kind === "focus" || b.kind === "task");
+  // Time passes beyond the first block without it being finished.
+  const [h, m] = first.end.split(":").map(Number);
+  process.env.NIKKI_FAKE_NOW = `2026-10-05T${String(h - 1).padStart(2, "0")}:${String(m).padStart(2, "0")}:00Z`;
+  // A full day has no room, and says so.
+  const full = await api("POST", `/api/tasks/${first.taskId}/reschedule`, { to: "later_today" });
+  assert.equal(full.status, 422);
+  assert.match(full.json.error, /isn't 90 minutes free/);
+  // Free up time by moving the other tasks to tomorrow, then it fits (split across the free gaps).
+  const others = new Set(plan.blocks.filter((b: any) => b.taskId && b.taskId !== first.taskId).map((b: any) => b.taskId));
+  for (const id of others) await api("POST", `/api/tasks/${id}/reschedule`, { to: "date", date: "2026-10-06" });
+  const later = await api("POST", `/api/tasks/${first.taskId}/reschedule`, { to: "later_today" });
+  assert.equal(later.status, 200, JSON.stringify(later.json));
+  const moved = later.json.state.plan.blocks.filter((b: any) => b.taskId === first.taskId);
+  assert.ok(moved.every((b: any) => b.start >= first.end), "the missed part moved to after now");
+  const movedMinutes = moved.reduce((s: number, b: any) => s + (+b.end.slice(0, 2) * 60 + +b.end.slice(3)) - (+b.start.slice(0, 2) * 60 + +b.start.slice(3)), 0);
+  assert.equal(movedMinutes, 90 + 30, "90 missed minutes re-placed, the 30 still to come kept");
+  assert.match(later.json.message, /Moved/);
+
+  const tom = await api("POST", `/api/tasks/${first.taskId}/reschedule`, { to: "date", date: "2026-10-06" });
+  const st = tom.json.state;
+  assert.ok(!st.plan.blocks.some((b: any) => b.taskId === first.taskId), "off today's plan");
+  assert.ok(st.plan.deferred.some((d: any) => d.taskId === first.taskId));
+  assert.notEqual(st.plan.focusTaskId, first.taskId);
+  const t = st.tasks.find((x: any) => x.id === first.taskId);
+  assert.equal(t.plannedDate, "2026-10-06");
+  assert.equal(t.rolloverCount, 1);
+
+  const past = await api("POST", `/api/tasks/${first.taskId}/reschedule`, { to: "date", date: "2026-10-01" });
+  assert.equal(past.status, 400);
+  const some = await api("POST", `/api/tasks/${first.taskId}/reschedule`, { to: "someday" });
+  assert.equal(some.json.state.tasks.find((x: any) => x.id === first.taskId).plannedDate, null);
+});
+
+test("deleting or re-dating a task takes it off today's plan", async () => {
+  const s = await demoPlan();
+  await api("POST", `/api/proposals/${s.proposal.id}/confirm`, {});
+  const plan = (await api("GET", "/api/state")).json.state.plan;
+  const [x, y] = [plan.focusTaskId, plan.supporting[0].taskId];
+  const d = await api("DELETE", `/api/tasks/${x}`);
+  assert.ok(!d.json.state.plan.blocks.some((b: any) => b.taskId === x));
+  assert.equal(d.json.state.plan.focusTaskId, null);
+  const p = await api("PATCH", `/api/tasks/${y}`, { plannedDate: "2026-10-08" });
+  assert.ok(!p.json.state.plan.blocks.some((b: any) => b.taskId === y));
+  // The remaining plan still passes its own checks (edits keep working).
+  const again = await api("PUT", "/api/plan", { expectedVersion: p.json.state.plan.version, plan: p.json.state.plan });
+  assert.equal(again.status, 200, JSON.stringify(again.json));
+});
+
+test("live: 'take X off today' is a confirmable change that really removes it once confirmed", async () => {
+  const empty = { questions: [], quick_replies: [], captured_items: [], task_updates: [], meetings: [], context_updates: [], plan: null };
+  let turn = 0;
+  let ids: string[] = [];
+  setProvider({
+    name: "fake",
+    model: "fake",
+    generate: async () => {
+      turn++;
+      if (turn === 1) {
+        return {
+          model: "fake",
+          text: JSON.stringify({
+            ...empty,
+            message: "Here's a plan.",
+            captured_items: [
+              { ref: "n1", kind: "action", title: "Write report", notes: "", estimate_minutes: 60, deadline: "", planned_date: "", project: "", duplicate_of: "" },
+              { ref: "n2", kind: "action", title: "Tenders", notes: "", estimate_minutes: 60, deadline: "", planned_date: "", project: "", duplicate_of: "" },
+            ],
+            plan: {
+              date: "2026-10-05",
+              main_outcome: "Report done",
+              focus: { task_ref: "n1", why: "" },
+              supporting: [{ task_ref: "n2", why: "" }],
+              deferred: [],
+              window: { start: "10:00", end: "13:00" },
+              work_budget_minutes: 120,
+              blocks: [
+                { start: "10:00", end: "11:00", kind: "focus", task_ref: "n1", title: "Write report" },
+                { start: "11:00", end: "12:00", kind: "task", task_ref: "n2", title: "Tenders" },
+              ],
+              reasons: [],
+              assumptions: [],
+            },
+          }),
+        };
+      }
+      return {
+        model: "fake",
+        text: JSON.stringify({
+          ...empty,
+          message: "I've set up taking the tenders off today — tap Confirm to apply it.",
+          task_updates: [{ task_id: ids[1], change: "unschedule", title: "", estimate_minutes: 0, deadline: "", planned_date: "", notes: "", reason: "You asked." }],
+        }),
+      };
+    },
+  });
+  const r1 = await send("Report and tenders today", "personal");
+  assert.equal(r1.status, 200, JSON.stringify(r1.json));
+  await api("POST", `/api/proposals/${r1.json.state.proposal.id}/confirm`, {}, "personal");
+  ids = r1.json.state.proposal.plan.blocks.filter((b: any) => b.taskId).map((b: any) => b.taskId);
+  const r2 = await send("Remove the tenders from today", "personal");
+  const st = r2.json.state;
+  assert.ok(st.plan.blocks.some((b: any) => b.taskId === ids[1]), "nothing changes before confirming");
+  assert.equal(st.proposal.taskChanges[0].change, "unschedule");
+  const c = await api("POST", `/api/proposals/${st.proposal.id}/confirm`, {}, "personal");
+  assert.equal(c.status, 200, JSON.stringify(c.json));
+  assert.ok(!c.json.state.plan.blocks.some((b: any) => b.taskId === ids[1]), "gone after confirming");
+  assert.equal(c.json.state.plan.supporting.length, 0);
+  assert.equal(c.json.state.plan.workBudgetMinutes, 60);
 });
 
 test("timezone: 'today' follows the user's timezone", () => {
@@ -410,7 +540,7 @@ test("evening wrap-up applies decisions, saves a journal entry and drives the ne
   const w = await api("POST", "/api/wrapup", {
     decisions: [
       { taskId: sup1, action: "tomorrow" },
-      { taskId: sup2, action: "park" },
+      { taskId: sup2, action: "someday" },
     ],
     note: "Proposal felt good. Tired.",
   });
@@ -418,7 +548,8 @@ test("evening wrap-up applies decisions, saves a journal entry and drives the ne
   const st = w.json.state;
   assert.deepEqual(st.wrapUpToday.doneTaskIds, [focusId]);
   assert.deepEqual(st.wrapUpToday.tomorrowTaskIds, [sup1]);
-  assert.equal(st.tasks.find((t: any) => t.id === sup2).type, "idea");
+  assert.equal(st.tasks.find((t: any) => t.id === sup2).plannedDate, null);
+  assert.equal(st.tasks.find((t: any) => t.id === sup1).plannedDate, "2026-10-06", "tomorrow really moves it");
   assert.ok(st.messages.at(-1).meta.system, "wrap-up note in chat");
   // Optional reflection (demo: scripted, never a plan)
   const r = await api("POST", "/api/messages", { text: "Evening wrap-up.\nDone today: Finish a proposal\nMoving to tomorrow: Review beta feedback", clientRequestId: "wrap-reflect-1", kind: "wrapup" });

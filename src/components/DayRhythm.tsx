@@ -4,7 +4,7 @@ import { api, ApiError } from "../api";
 import type { AppActions } from "../App";
 import { fmtDate, fmtDuration } from "../util";
 
-type WrapAction = "tomorrow" | "done" | "park" | "drop";
+type WrapAction = "tomorrow" | "done" | "someday" | "drop";
 
 function isToday(iso: string, tz: string, today: string) {
   try {
@@ -107,8 +107,8 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
             {open.map((t) => (
               <li key={t.id} className="review-row">
                 <span>{t.title}</span>
-                <div className="segmented small" role="radiogroup" aria-label={`What to do with ${t.title}`}>
-                  {(["tomorrow", "done", "park", "drop"] as const).map((a) => (
+                <div className="segmented small review-choices" role="radiogroup" aria-label={`What to do with ${t.title}`}>
+                  {(["tomorrow", "done", "someday", "drop"] as const).map((a) => (
                     <button
                       key={a}
                       type="button"
@@ -117,7 +117,7 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
                       className={decisions[t.id] === a ? "active" : ""}
                       onClick={() => setDecisions({ ...decisions, [t.id]: a })}
                     >
-                      {a === "tomorrow" ? "Tomorrow" : a === "done" ? "Done" : a === "park" ? "Park" : "Drop"}
+                      {a === "tomorrow" ? "Tomorrow" : a === "done" ? "Done" : a === "someday" ? "Someday" : "Delete"}
                     </button>
                   ))}
                 </div>

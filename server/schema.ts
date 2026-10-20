@@ -50,7 +50,7 @@ export const RESPONSE_JSON_SCHEMA = {
         required: ["task_id", "change", "title", "estimate_minutes", "deadline", "planned_date", "notes", "reason"],
         properties: {
           task_id: str,
-          change: { type: "string", enum: ["update", "complete", "waiting", "blocked", "reopen", "delete"] },
+          change: { type: "string", enum: ["update", "complete", "waiting", "blocked", "reopen", "delete", "unschedule"] },
           title: str,
           estimate_minutes: int,
           deadline: str,
@@ -149,7 +149,7 @@ export const ModelResponse = z.object({
   task_updates: z.array(
     z.object({
       task_id: z.string(),
-      change: z.enum(["update", "complete", "waiting", "blocked", "reopen", "delete"]),
+      change: z.enum(["update", "complete", "waiting", "blocked", "reopen", "delete", "unschedule"]),
       title: optStr,
       estimate_minutes: optMinutes,
       deadline: optStr,

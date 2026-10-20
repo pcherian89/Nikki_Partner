@@ -156,7 +156,6 @@ export default function App() {
             ? await api("POST", "/api/replan", { clientRequestId: p.requestId, remainingUntil: p.remainingUntil ?? null, note: p.text })
             : await api("POST", "/api/messages", { text: p.text, clientRequestId: p.requestId, kind: p.kind });
         setState(r.state);
-        if (r.state.proposal?.plan) setPane((cur) => cur);
         return true;
       } catch (e) {
         setSendError({ message: (e as Error).message, send: p });

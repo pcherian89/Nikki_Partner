@@ -25,7 +25,12 @@ const CHANGE_LABELS: Record<string, string> = {
   blocked: "Mark blocked",
   reopen: "Reopen",
   delete: "Delete",
+  unschedule: "Take off today",
 };
+
+const changeLabel = (c: Proposal["taskChanges"][number]) => (c.change === "update" && c.plannedDate && !c.title && !c.estimateMinutes ? "Move" : CHANGE_LABELS[c.change]);
+
+const isPhone = () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches;
 
 export function ProposalCard({
   state,
@@ -75,9 +80,9 @@ export function ProposalCard({
       });
       actions.setState(r.state);
       if (draft) {
-        actions.toast({ text: `Plan confirmed${r.state.plan ? ` (version ${r.state.plan.version})` : ""}.`, action: { label: "View plan", run: onShowPlan } });
+        actions.toast({ text: "Plan confirmed.", action: { label: "View plan", run: onShowPlan } });
         onShowPlan();
-      } else actions.toast({ text: "Changes applied." });
+      } else actions.toast({ text: accepted.size === 1 ? "Done — change applied." : `Done — ${accepted.size} changes applied.` });
     } catch (e) {
       const err = e as ApiError;
       setErrors(err.details?.length ? err.details : [err.message]);
@@ -190,13 +195,10 @@ export function ProposalCard({
 
           {cap && (
             <div className="capacity small">
-              <span>Work {fmtDuration(cap.work)} of {fmtDuration(draft.workBudgetMinutes)} budget</span>
-              <span>Breaks {fmtDuration(cap.breaks)}</span>
-              <span>Buffer {fmtDuration(cap.buffer)}</span>
-              <span>
-                Window {fmtRange(draft.window.start, draft.window.end)}
-              </span>
-              {overBudget && <span className="warn">Over budget</span>}
+              <span>{fmtDuration(cap.work)} of work</span>
+              <span>{fmtDuration(cap.available)} free {fmtRange(draft.window.start, draft.window.end)}</span>
+              {cap.breaks > 0 && <span>Breaks {fmtDuration(cap.breaks)}</span>}
+              {overBudget && <span className="warn">More work than the time you set ({fmtDuration(draft.workBudgetMinutes)})</span>}
             </div>
           )}
 
@@ -229,7 +231,7 @@ export function ProposalCard({
           )}
 
           {(draft.reasons.length > 0 || draft.assumptions.length > 0) && (
-            <details className="reasons" open>
+            <details className="reasons" open={!isPhone()}>
               <summary>Why this plan</summary>
               <ul>
                 {draft.reasons.map((r) => (
@@ -248,7 +250,7 @@ export function ProposalCard({
 
       {proposal.taskChanges.length > 0 && (
         <div className="task-changes">
-          <div className="eyebrow">Changes to saved tasks</div>
+          <div className="eyebrow">Waiting for your OK</div>
           {proposal.taskChanges.map((c) => (
             <label key={c.id} className="check-row">
               <input
@@ -262,7 +264,7 @@ export function ProposalCard({
                 }}
               />
               <span>
-                <strong>{CHANGE_LABELS[c.change]}</strong>: {tasks.get(c.taskId)?.title ?? c.taskId}
+                <strong>{changeLabel(c)}</strong>: {tasks.get(c.taskId)?.title ?? c.taskId}
                 {c.title ? ` → “${c.title}”` : ""}
                 {c.estimateMinutes ? ` (${fmtDuration(c.estimateMinutes)})` : ""}
                 {c.plannedDate ? ` → do on ${fmtDate(c.plannedDate)}` : ""}
@@ -322,7 +324,7 @@ export function ProposalCard({
 
       {proposal.warnings.length > 0 && (
         <details className="notes">
-          <summary>App checks ({proposal.warnings.length})</summary>
+          <summary>Notes ({proposal.warnings.length})</summary>
           <ul>
             {proposal.warnings.map((w) => (
               <li key={w}>{w}</li>
@@ -352,7 +354,7 @@ export function ProposalCard({
       {(draft || proposal.taskChanges.length > 0) && !stale && (
         <div className="row gap wrap proposal-actions">
           <button className="btn primary" onClick={confirm} disabled={busy}>
-            {busy ? "Saving…" : draft ? (edited ? "Confirm edited plan" : "Confirm plan") : "Apply changes"}
+            {busy ? "Saving…" : draft ? (edited ? "Confirm edited plan" : "Confirm plan") : proposal.taskChanges.length === 1 ? "Confirm" : "Confirm changes"}
           </button>
           {edited && (
             <button

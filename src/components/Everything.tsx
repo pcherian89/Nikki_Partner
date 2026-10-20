@@ -15,7 +15,7 @@ export function Everything({ state, actions }: { state: AppState; actions: AppAc
   const sections: { key: string; title: string; hint: string; items: Task[] }[] = [
     { key: "active", title: "Active actions", hint: "Things to do.", items: live.filter((t) => t.type === "action" && t.status === "open") },
     { key: "waiting", title: "Waiting or blocked", hint: "Can't move until something else happens.", items: live.filter((t) => t.status === "waiting" || t.status === "blocked") },
-    { key: "ideas", title: "Parked ideas", hint: "Possibilities — not obligations. Promote one when you're ready.", items: live.filter((t) => t.type === "idea" && t.status === "open") },
+    { key: "ideas", title: "Ideas", hint: "Possibilities — not obligations. Promote one when you're ready.", items: live.filter((t) => t.type === "idea" && t.status === "open") },
     { key: "reference", title: "Reference", hint: "Information worth keeping.", items: live.filter((t) => t.type === "reference" && t.status === "open") },
     { key: "done", title: "Completed", hint: "", items: live.filter((t) => t.status === "done").reverse() },
   ];

@@ -84,6 +84,8 @@ export function resolveResponse(
     now: string;
     kind: TurnInput["kind"];
     source: Task["source"];
+    /** A confirmed plan already exists for today, so a new one only replaces the rest of the day. */
+    hasPlanToday?: boolean;
   },
 ): Resolved {
   const notes: string[] = [];
@@ -123,6 +125,7 @@ export function resolveResponse(
       source: ctx.source,
       actualMinutes: null,
       spentMinutes: 0,
+      rolloverCount: 0,
       timerStartedAt: null,
       steps: [],
     };
@@ -181,10 +184,11 @@ export function resolveResponse(
     if (p.date && p.date !== planDate) notes.push(`Nikki proposed a plan for ${p.date}; plans can only be made for today or tomorrow.`);
     const allMeetings = [...ctx.meetingsOn(planDate), ...newMeetings.filter((m) => m.date === planDate)];
     const nowMin = toMinutes(ctx.now);
+    // Changing today's confirmed plan: the past is kept from that plan, so ignore copies of it.
+    const editingToday = planDate === ctx.date && (ctx.kind === "replan" || !!ctx.hasPlanToday);
     const blocks: PlanBlock[] = [];
     for (const b of p.blocks) {
-      // On a replan, past blocks are kept from the confirmed plan; ignore copies.
-      if (ctx.kind === "replan" && isValidTime(b.end) && toMinutes(b.end) <= nowMin) continue;
+      if (editingToday && isValidTime(b.end) && toMinutes(b.end) <= nowMin) continue;
       const meeting =
         b.kind === "meeting" ? allMeetings.find((m) => m.start === b.start && m.end === b.end) ?? null : null;
       blocks.push({
@@ -214,7 +218,7 @@ export function resolveResponse(
     planErrors = validatePlanDraft(draft, {
       meetings: allMeetings,
       tasks: taskMap,
-      notBefore: ctx.kind === "replan" ? ctx.now : null,
+      notBefore: editingToday ? ctx.now : null,
     });
     // Tasks already done shouldn't be scheduled again.
     for (const b of blocks) {
@@ -280,6 +284,7 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
       now: now.time,
       kind: input.kind,
       source: ws === "demo" ? ("demo" as const) : ("nikki" as const),
+      hasPlanToday: !!plan,
     };
 
     let resp: ModelResponse;
@@ -431,7 +436,9 @@ function persistTurn(
     }
     const message = addMessage(db, {
       role: "assistant",
-      text: resp.message.trim() || (resp.questions.length ? "A couple of quick questions:" : "Done."),
+      text:
+        resp.message.trim() ||
+        (resp.questions.length ? "A couple of quick questions:" : proposal ? "Here's the change. Tap Confirm to apply it." : "Got it."),
       meta: {
         ...a.demoMeta,
         kind: a.kind,

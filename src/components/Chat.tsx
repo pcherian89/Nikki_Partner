@@ -3,6 +3,7 @@ import type { AppState, ChatMessage } from "../../shared/types";
 import type { AppActions, PendingSend } from "../App";
 import { Avatar } from "./Avatar";
 import { MicButton } from "./Voice";
+import { ProposalCard } from "./ProposalCard";
 
 interface Props {
   state: AppState;
@@ -98,11 +99,17 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
         {state.messages.map((m) => (
           <div key={m.id}>
             <Message m={m} state={state} />
-            {proposal && m.meta.proposalId === proposal.id && (
+            {proposal && m.meta.proposalId === proposal.id && !proposal.plan && proposal.status === "pending" && (
+              // Small changes (take off today, move, delete…) can be confirmed right here.
+              <div className="inline-proposal">
+                <ProposalCard state={state} proposal={proposal} actions={actions} onShowPlan={onShowPlan} />
+              </div>
+            )}
+            {proposal && m.meta.proposalId === proposal.id && proposal.plan && (
               <button className="proposal-link" onClick={onShowPlan}>
                 <span>
-                  <strong>{proposal.plan ? (proposal.kind === "replan" ? "Proposed update ready" : "Proposed plan ready") : "Suggestions to review"}</strong>
-                  <span className="muted small block">Not saved until you confirm · review it in Today's plan</span>
+                  <strong>{proposal.kind === "replan" ? "Updated plan ready" : proposal.plan.date === state.tomorrow.date ? "Plan for tomorrow ready" : "Plan ready"}</strong>
+                  <span className="muted small block">Tap to review and confirm — nothing changes until you do</span>
                 </span>
                 <span aria-hidden>→</span>
               </button>

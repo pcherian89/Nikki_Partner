@@ -39,6 +39,45 @@ export function useCompletion(state: AppState, actions: AppActions) {
   };
 }
 
+type RescheduleBody = { to: "later_today" } | { to: "date"; date: string } | { to: "someday" };
+
+/** Direct user actions for unfinished work. They apply immediately and say what happened. */
+export function useReschedule(actions: AppActions) {
+  return async (task: Task, body: RescheduleBody) => {
+    try {
+      const r = await api<{ state: AppState; message: string }>("POST", `/api/tasks/${task.id}/reschedule`, body);
+      actions.setState(r.state);
+      actions.toast({ text: r.message });
+      return true;
+    } catch (e) {
+      const err = e as ApiError;
+      actions.toast({ text: err.message, tone: "error" });
+      return false;
+    }
+  };
+}
+
+/** Done / Later today / Tomorrow / Pick a day, for a task whose planned time passed. */
+export function MissedActions({ task, state, actions, onToggle, laterToday = true }: { task: Task; state: AppState; actions: AppActions; onToggle: (t: Task, d: boolean) => void; laterToday?: boolean }) {
+  const reschedule = useReschedule(actions);
+  return (
+    <div className="missed-actions" role="group" aria-label={`What to do with ${task.title}`}>
+      <button className="btn small" onClick={() => onToggle(task, true)}>Done</button>
+      {laterToday && <button className="btn small ghost" onClick={() => reschedule(task, { to: "later_today" })}>Later today</button>}
+      <button className="btn small ghost" onClick={() => reschedule(task, { to: "date", date: state.tomorrow.date })}>Tomorrow</button>
+      <label className="btn small ghost pick-day">
+        Pick a day
+        <input
+          type="date"
+          min={state.today}
+          aria-label={`Pick a day for ${task.title}`}
+          onChange={(e) => e.target.value && reschedule(task, { to: "date", date: e.target.value })}
+        />
+      </label>
+    </div>
+  );
+}
+
 export function Today({ state, actions, busy }: { state: AppState; actions: AppActions; busy: boolean }) {
   const [day, setDay] = useState<"today" | "tomorrow" | "week">("today");
   const proposalDay: "today" | "tomorrow" | "week" = isWeekProposal(state.proposal)
@@ -299,7 +338,16 @@ function NextUp({
 }) {
   const now = toMin(state.now);
   const next = plan.blocks.find((b) => (b.kind === "focus" || b.kind === "task") && toMin(b.end) > now && b.taskId && tasks.get(b.taskId)?.status !== "done");
-  const allDone = plan.blocks.filter((b) => b.taskId).every((b) => tasks.get(b.taskId!)?.status === "done");
+  const allDone = plan.blocks.filter((b) => b.taskId && tasks.has(b.taskId)).every((b) => tasks.get(b.taskId!)?.status === "done");
+  const missed = new Set(
+    plan.blocks.filter((b) => (b.kind === "focus" || b.kind === "task") && toMin(b.end) <= now && b.taskId && tasks.has(b.taskId) && tasks.get(b.taskId)?.status !== "done").map((b) => b.taskId),
+  ).size;
+  const missedNote =
+    missed > 0 ? (
+      <p className="missed-note small">
+        {missed === 1 ? "1 thing" : `${missed} things`} didn't get finished in time — choose what to do with {missed === 1 ? "it" : "them"} in the schedule below.
+      </p>
+    ) : null;
   if (allDone) {
     return (
       <div className="card next-up done">
@@ -310,12 +358,11 @@ function NextUp({
     );
   }
   if (!next) {
-    const leftover = plan.blocks.find((b) => b.taskId && tasks.get(b.taskId)?.status !== "done");
     return (
       <div className="card next-up">
         <div className="eyebrow">Next</div>
-        <strong>The planned time has passed{leftover ? ` — “${leftover.title}” is still open` : ""}.</strong>
-        <p className="muted small">Use “Update my plan” to fit what's left into the time you have.</p>
+        <strong>Nothing else is scheduled for today.</strong>
+        {missedNote}
       </div>
     );
   }
@@ -336,6 +383,7 @@ function NextUp({
       </label>
       <StepList task={task} actions={actions} />
       <TaskToolButtons task={task} actions={actions} timer />
+      {missedNote}
     </div>
   );
 }
@@ -384,13 +432,11 @@ function Schedule({
       if (!ok) actions.toast({ text: "There isn't room to extend that block. Try “Update my plan” to rebalance the day.", tone: "error" });
     });
 
-  const moveOut = (b: PlanBlock) =>
-    save((d) => {
-      d.blocks = d.blocks.filter((x) => x.taskId !== b.taskId);
-      if (b.taskId && !d.deferred.some((x) => x.taskId === b.taskId)) d.deferred.push({ taskId: b.taskId, why: "You moved this out of today." });
-      d.supporting = d.supporting.filter((s) => s.taskId !== b.taskId);
-      if (d.focusTaskId === b.taskId) d.focusTaskId = null;
-    });
+  const reschedule = useReschedule(actions);
+  const moveTo = async (task: Task, body: RescheduleBody) => {
+    setMenu(null);
+    await reschedule(task, body);
+  };
 
   const markBlocked = async (b: PlanBlock) => {
     const ok = await actions.mutate("PATCH", `/api/tasks/${b.taskId}`, { status: "blocked" });
@@ -442,7 +488,11 @@ function Schedule({
                       {task?.status === "blocked" && <span className="tag warn">Blocked</span>}
                       {task?.status === "waiting" && <span className="tag subtle">Waiting</span>}
                       {current && <span className="tag now">Now</span>}
+                      {past && isWork && task && task.status !== "done" && <span className="tag warn">Not finished</span>}
                     </span>
+                    {past && isWork && task && task.status !== "done" && (
+                      <MissedActions task={task} state={state} actions={actions} onToggle={onToggle} />
+                    )}
                   </div>
                   {b.kind !== "meeting" && (
                     <div className="slot-actions">
@@ -456,7 +506,9 @@ function Schedule({
                               <button role="menuitem" onClick={() => needMoreTime(b, 15)}>Need more time (+15 min)</button>
                               <button role="menuitem" onClick={() => needMoreTime(b, 30)}>Need more time (+30 min)</button>
                               <button role="menuitem" onClick={() => markBlocked(b)}>I'm blocked</button>
-                              <button role="menuitem" onClick={() => moveOut(b)}>Move out of today</button>
+                              {task && isToday && <button role="menuitem" onClick={() => moveTo(task, { to: "later_today" })}>Later today</button>}
+                              {task && isToday && <button role="menuitem" onClick={() => moveTo(task, { to: "date", date: state.tomorrow.date })}>Move to tomorrow</button>}
+                              {task && <button role="menuitem" onClick={() => moveTo(task, { to: "someday" })}>Take off the plan (someday)</button>}
                             </>
                           )}
                           {isWork && task && (
@@ -719,45 +771,54 @@ function ReplanForm({ plan, state, actions, onClose, busy }: { plan: Plan; state
   );
 }
 
+const REVIEW_LABELS = { today: "Today", tomorrow: "Tomorrow", done: "Done", someday: "Someday", drop: "Delete" } as const;
+type ReviewAction = keyof typeof REVIEW_LABELS;
+
 function NewDayReview({ state, actions }: { state: AppState; actions: AppActions }) {
   const nd = state.newDay!;
-  const [decisions, setDecisions] = useState<Record<string, "keep" | "done" | "park" | "drop">>(
-    Object.fromEntries(nd.unfinishedTaskIds.map((id) => [id, "keep"])),
-  );
+  const [decisions, setDecisions] = useState<Record<string, ReviewAction>>(Object.fromEntries(nd.unfinishedTaskIds.map((id) => [id, "today"])));
   const tasks = taskById(state.tasks);
   const submit = async (skip = false) => {
     const ok = await actions.mutate("POST", "/api/review", {
       decisions: skip ? [] : Object.entries(decisions).map(([taskId, action]) => ({ taskId, action })),
     });
     if (ok && !skip) {
-      const kept = Object.entries(decisions).filter(([, a]) => a === "keep").map(([id]) => tasks.get(id)?.title).filter(Boolean);
-      actions.focusComposer(kept.length ? `Let's plan today. Carrying over: ${kept.join(", ")}. ` : "Let's plan today. ");
+      const kept = Object.entries(decisions).filter(([, a]) => a === "today").map(([id]) => tasks.get(id)?.title).filter(Boolean);
+      if (!state.plan) actions.focusComposer(kept.length ? `Let's plan today. Carrying over: ${kept.join(", ")}. ` : "Let's plan today. ");
+      else actions.toast({ text: kept.length ? `${kept.length} carried into today. Ask Nikki to fit ${kept.length === 1 ? "it" : "them"} into the plan.` : "Sorted." });
     }
   };
+  const n = nd.unfinishedTaskIds.length;
   return (
     <div className="card new-day">
-      <div className="eyebrow">Welcome back</div>
+      <div className="eyebrow">Not finished</div>
       <h3 className="h3">
-        {nd.unfinishedTaskIds.length} item{nd.unfinishedTaskIds.length > 1 ? "s" : ""} from {fmtDate(nd.lastPlanDate)} weren't finished.
+        {n === 1 ? "1 thing" : `${n} things`} from before today didn't get done.
       </h3>
-      <p className="muted small">Review them before planning today? Nothing changes until you save.</p>
+      <p className="muted small">Choose what happens to each. Nothing changes until you save.</p>
       <ul className="plain-list">
-        {nd.unfinishedTaskIds.map((id) => (
-          <li key={id} className="review-row">
-            <span>{tasks.get(id)?.title}</span>
-            <div className="segmented small" role="radiogroup" aria-label={`What to do with ${tasks.get(id)?.title}`}>
-              {(["keep", "done", "park", "drop"] as const).map((a) => (
-                <button key={a} type="button" role="radio" aria-checked={decisions[id] === a} className={decisions[id] === a ? "active" : ""} onClick={() => setDecisions({ ...decisions, [id]: a })}>
-                  {a === "keep" ? "Keep" : a === "done" ? "Done" : a === "park" ? "Park" : "Drop"}
-                </button>
-              ))}
-            </div>
-          </li>
-        ))}
+        {nd.unfinishedTaskIds.map((id) => {
+          const t = tasks.get(id);
+          return (
+            <li key={id} className="review-row">
+              <span>
+                {t?.title}
+                {t?.rolloverCount ? <span className="muted small"> · moved {t.rolloverCount}× already</span> : null}
+              </span>
+              <div className="segmented small review-choices" role="radiogroup" aria-label={`What to do with ${t?.title}`}>
+                {(Object.keys(REVIEW_LABELS) as ReviewAction[]).map((a) => (
+                  <button key={a} type="button" role="radio" aria-checked={decisions[id] === a} className={decisions[id] === a ? "active" : ""} onClick={() => setDecisions({ ...decisions, [id]: a })}>
+                    {REVIEW_LABELS[a]}
+                  </button>
+                ))}
+              </div>
+            </li>
+          );
+        })}
       </ul>
       <div className="row gap wrap">
-        <button className="btn primary" onClick={() => submit()}>Save and plan today</button>
-        <button className="btn ghost" onClick={() => submit(true)}>Skip review</button>
+        <button className="btn primary" onClick={() => submit()}>{state.plan ? "Save" : "Save and plan today"}</button>
+        <button className="btn ghost" onClick={() => submit(true)}>Decide later</button>
       </div>
     </div>
   );

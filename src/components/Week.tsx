@@ -13,8 +13,9 @@ const addDays = (date: string, n: number) => {
 const weekdayShort = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" });
 const dayNum = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" });
 
-/** A proposal that only assigns tasks to days (no timed plan) belongs to the week view. */
-export const isWeekProposal = (p: AppState["proposal"]) => !!p && !p.plan && p.taskChanges.some((c) => c.plannedDate);
+/** A proposal that spreads several tasks across days (no timed plan) belongs to the week view. */
+export const isWeekProposal = (p: AppState["proposal"]) =>
+  !!p && !p.plan && p.taskChanges.filter((c) => c.change === "update" && c.plannedDate).length >= 2;
 
 export function Week({ state, actions, onOpenDay, busy }: { state: AppState; actions: AppActions; onOpenDay: (d: "today" | "tomorrow") => void; busy: boolean }) {
   const complete = useCompletion(state, actions);

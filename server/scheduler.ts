@@ -26,7 +26,7 @@ const MAX_CHUNK = 90;
 const MIN_CHUNK = 20;
 const BREAK = 15;
 
-export function freeSegments(start: number, end: number, meetings: Meeting[]) {
+export function freeSegments(start: number, end: number, meetings: Pick<Meeting, "start" | "end">[]) {
   const segs: [number, number][] = [];
   let cursor = start;
   const sorted = [...meetings].sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
