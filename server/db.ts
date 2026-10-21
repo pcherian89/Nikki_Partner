@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
+import { currentInstant, isValidTimeZone, localDateOf } from "./time.js";
 import type {
   TaskDraft,
   TaskStep,
@@ -119,6 +120,31 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+-- What was actually worked on: one row per stretch of work (timer start..stop, or a confirmed block).
+CREATE TABLE IF NOT EXISTS work_sessions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  started_at TEXT,
+  ended_at TEXT,
+  minutes INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  block_start TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_work_sessions_date ON work_sessions (date);
+-- The user's answer for a planned block (done / partly / skipped / rescheduled). Planned time itself lives in plan_blocks.
+CREATE TABLE IF NOT EXISTS block_outcomes (
+  date TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  start TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  minutes INTEGER,
+  note TEXT,
+  decided_at TEXT NOT NULL,
+  PRIMARY KEY (date, task_id, start)
+);
 CREATE TABLE IF NOT EXISTS requests (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL,
@@ -128,6 +154,37 @@ CREATE TABLE IF NOT EXISTS requests (
 `;
 
 const dbs = new Map<Workspace, DB>();
+
+/** Bump when the stored layout changes. Existing databases are copied aside before they are migrated. */
+const SCHEMA_VERSION = 2; // 2: work_sessions, block_outcomes
+const KEEP_SNAPSHOTS = 5;
+
+/**
+ * Before an existing database is migrated, copy it next to itself (same volume) so a bad migration can be undone
+ * by putting the copy back. Only additive changes are ever made, so older code keeps working on a migrated file.
+ */
+function snapshotBeforeMigration(db: DB, file: string, fromVersion: number) {
+  try {
+    const hasTasks = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").get();
+    if (!hasTasks) return; // a new database: nothing to protect
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const target = `${file}.v${fromVersion}-before-v${SCHEMA_VERSION}-${stamp}.bak`;
+    db.prepare("VACUUM INTO ?").run(target);
+    const dir = path.dirname(file);
+    const prefix = `${path.basename(file)}.v`;
+    const old = fs
+      .readdirSync(dir)
+      .filter((f) => f.startsWith(prefix) && f.endsWith(".bak"))
+      .sort();
+    for (const f of old.slice(0, Math.max(0, old.length - KEEP_SNAPSHOTS))) fs.rmSync(path.join(dir, f), { force: true });
+    console.log(`[db] Saved a copy of ${path.basename(file)} before upgrading it: ${target}`);
+  } catch (e) {
+    console.warn(`[db] Could not save a pre-upgrade copy of ${path.basename(file)}: ${(e as Error).message}`);
+  }
+}
+
+/** Timestamps of things the user does. Follows NIKKI_FAKE_NOW (tests) so plan history lines up with the clock. */
+export const clockIso = () => currentInstant().toISOString();
 
 export function dbPath(ws: Workspace) {
   return ws === "demo" ? config.demoDatabasePath : config.databasePath;
@@ -141,8 +198,11 @@ export function getDb(ws: Workspace): DB {
   db = new Database(file);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  const version = db.pragma("user_version", { simple: true }) as number;
+  if (version < SCHEMA_VERSION) snapshotBeforeMigration(db, file, version);
   db.exec(SCHEMA);
   migrate(db);
+  if (version < SCHEMA_VERSION) db.pragma(`user_version = ${SCHEMA_VERSION}`);
   dbs.set(ws, db);
   return db;
 }
@@ -187,6 +247,8 @@ export const TABLES = [
   "proposals",
   "plans",
   "plan_blocks",
+  "work_sessions",
+  "block_outcomes",
   "requests",
   "settings",
 ];
@@ -453,12 +515,13 @@ export function updateTask(db: DB, id: string, patch: Partial<Task>): Task | nul
   if (!cur) return null;
   const next: Task = { ...cur, ...patch, id: cur.id, createdAt: cur.createdAt, updatedAt: nowIso(), steps: cur.steps };
   if (patch.status && patch.status !== cur.status) {
-    next.completedAt = patch.status === "done" ? nowIso() : null;
+    next.completedAt = patch.status === "done" ? clockIso() : null;
   }
   // Finishing (or blocking) a task stops its focus timer and records the time spent.
   if (cur.timerStartedAt && patch.status && patch.status !== "open") {
     next.spentMinutes = cur.spentMinutes + elapsedMinutes(cur.timerStartedAt);
     next.timerStartedAt = null;
+    recordTimerSession(db, id, cur.timerStartedAt);
   }
   if (patch.status === "done" && next.actualMinutes == null && next.spentMinutes > 0) {
     next.actualMinutes = next.spentMinutes;
@@ -471,7 +534,83 @@ export function updateTask(db: DB, id: string, patch: Partial<Task>): Task | nul
   return next;
 }
 
-export const elapsedMinutes = (startIso: string) => Math.max(0, Math.round((Date.now() - new Date(startIso).getTime()) / 60000));
+export const elapsedMinutes = (startIso: string) => Math.max(0, Math.round((currentInstant().getTime() - new Date(startIso).getTime()) / 60000));
+
+// ---------- actual work sessions ----------
+
+/** The timezone used to decide which day a session belongs to: the profile's, else the last one the app saw. */
+function sessionTimezone(db: DB): string {
+  const row = db.prepare("SELECT data FROM profile WHERE id = 1").get() as { data: string } | undefined;
+  const fromProfile = row ? (JSON.parse(row.data).timezone as string | undefined) : undefined;
+  if (isValidTimeZone(fromProfile)) return fromProfile;
+  const last = getSetting(db, "last_timezone");
+  return isValidTimeZone(last) ? last : "UTC";
+}
+
+export interface SessionRow {
+  id: string;
+  taskId: string;
+  date: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  minutes: number;
+  source: "timer" | "confirmed";
+  blockStart: string | null;
+  note: string | null;
+}
+
+/** A timer stretch that just ended (paused, stopped or the task finished). Stretches under half a minute are noise. */
+function recordTimerSession(db: DB, taskId: string, startedAt: string) {
+  const minutes = elapsedMinutes(startedAt);
+  if (minutes < 1) return;
+  const endedAt = clockIso();
+  db.prepare(
+    "INSERT INTO work_sessions (id, task_id, date, started_at, ended_at, minutes, source, block_start, note, created_at) VALUES (?, ?, ?, ?, ?, ?, 'timer', NULL, NULL, ?)",
+  ).run(newId("ws"), taskId, localDateOf(startedAt, sessionTimezone(db)), startedAt, endedAt, minutes, endedAt);
+}
+
+/** Work you confirmed in the review (not from the timer). */
+export function addConfirmedSession(db: DB, s: { taskId: string; date: string; minutes: number; blockStart: string | null; note?: string | null }) {
+  if (s.minutes < 1) return;
+  db.prepare(
+    "INSERT INTO work_sessions (id, task_id, date, started_at, ended_at, minutes, source, block_start, note, created_at) VALUES (?, ?, ?, NULL, NULL, ?, 'confirmed', ?, ?, ?)",
+  ).run(newId("ws"), s.taskId, s.date, Math.round(s.minutes), s.blockStart, s.note ?? null, clockIso());
+}
+
+export function listSessions(db: DB, date: string): SessionRow[] {
+  return (
+    db
+      .prepare(
+        "SELECT id, task_id AS taskId, date, started_at AS startedAt, ended_at AS endedAt, minutes, source, block_start AS blockStart, note FROM work_sessions WHERE date = ? ORDER BY COALESCE(started_at, created_at)",
+      )
+      .all(date) as SessionRow[]
+  );
+}
+
+// ---------- outcomes of planned blocks ----------
+
+export type BlockOutcomeValue = "done" | "partial" | "skipped" | "rescheduled";
+export interface BlockOutcomeRow {
+  date: string;
+  taskId: string;
+  start: string;
+  outcome: BlockOutcomeValue;
+  minutes: number | null;
+  note: string | null;
+}
+
+export function recordBlockOutcome(db: DB, o: { date: string; taskId: string; start: string; outcome: BlockOutcomeValue; minutes?: number | null; note?: string | null }, overwrite = true) {
+  const sql = overwrite
+    ? "INSERT INTO block_outcomes (date, task_id, start, outcome, minutes, note, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(date, task_id, start) DO UPDATE SET outcome = excluded.outcome, minutes = excluded.minutes, note = excluded.note, decided_at = excluded.decided_at"
+    : "INSERT OR IGNORE INTO block_outcomes (date, task_id, start, outcome, minutes, note, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?)";
+  db.prepare(sql).run(o.date, o.taskId, o.start, o.outcome, o.minutes ?? null, o.note ?? null, clockIso());
+}
+
+export function listBlockOutcomes(db: DB, date: string): BlockOutcomeRow[] {
+  return db
+    .prepare("SELECT date, task_id AS taskId, start, outcome, minutes, note FROM block_outcomes WHERE date = ?")
+    .all(date) as BlockOutcomeRow[];
+}
 
 /** Starts or pauses a task's focus timer. Only one timer runs at a time. */
 export function setTimer(db: DB, id: string, action: "start" | "stop"): Task | null {
@@ -481,9 +620,10 @@ export function setTimer(db: DB, id: string, action: "start" | "stop"): Task | n
     if (action === "start") {
       for (const t of listTasks(db).filter((x) => x.timerStartedAt && x.id !== id)) setTimer(db, t.id, "stop");
       if (cur.timerStartedAt) return cur;
-      return updateTask(db, id, { timerStartedAt: nowIso() });
+      return updateTask(db, id, { timerStartedAt: clockIso() });
     }
     if (!cur.timerStartedAt) return cur;
+    recordTimerSession(db, id, cur.timerStartedAt);
     return updateTask(db, id, { timerStartedAt: null, spentMinutes: cur.spentMinutes + elapsedMinutes(cur.timerStartedAt) });
   })();
 }
@@ -701,7 +841,7 @@ export function savePlanVersion(
     db.prepare("UPDATE plans SET status = 'superseded' WHERE date = ? AND status = 'confirmed'").run(draft.date);
     const id = newId("p");
     const { blocks, ...rest } = draft;
-    const createdAt = nowIso();
+    const createdAt = clockIso();
     db.prepare(
       "INSERT INTO plans (id, date, version, status, data, created_at, proposal_id, source) VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?)",
     ).run(id, draft.date, cur + 1, JSON.stringify(rest), createdAt, opts.proposalId, opts.source);

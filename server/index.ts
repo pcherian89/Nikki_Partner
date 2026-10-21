@@ -54,7 +54,9 @@ import {
   deleteTaskEverywhere,
   removeTaskFromPlan,
   rescheduleTask,
+  recordOutcomes,
 } from "./planOps.js";
+import { dayHistory } from "./history.js";
 import { addDays, isValidDate, isValidTime, isValidTimeZone, localNow } from "./time.js";
 import { validateMeeting, validatePlanDraft } from "./validate.js";
 
@@ -368,12 +370,56 @@ app.patch(
       // Planning it for another day takes it off today's / tomorrow's plan.
       if (t && body.plannedDate !== undefined) {
         const today = localNow(c.tz).date;
-        for (const d of [today, addDays(today, 1)]) if (d !== body.plannedDate) removeTaskFromPlan(c.db, d, id, body.plannedDate ? `Moved to ${body.plannedDate}.` : "Moved to someday.");
+        const nowMin = localNow(c.tz).minutes;
+        for (const d of [today, addDays(today, 1)]) {
+          if (d === body.plannedDate) continue;
+          const why = body.plannedDate ? `Moved to ${body.plannedDate}.` : "Moved to someday.";
+          removeTaskFromPlan(c.db, d, id, why, d === today ? { nowMin, note: why.replace(/\.$/, "") } : undefined);
+        }
       }
       return t;
     })();
     if (!task) throw new UserFacingError("Task not found.", 404, "not_found");
     res.json({ state: state(req, c), task });
+  }),
+);
+
+/** The record of a day (default today): every planned block that began or was rescheduled, with its outcome. */
+app.get(
+  "/api/history",
+  h((req, res) => {
+    const c = ctx(req);
+    const now = localNow(c.tz);
+    const date = typeof req.query.date === "string" && isValidDate(req.query.date) ? req.query.date : now.date;
+    res.json({ date, items: dayHistory(c.db, date, c.tz, now) });
+  }),
+);
+
+/** Records what happened in planned blocks (done / partly / skipped). Never changes a task's own status. */
+app.post(
+  "/api/history/outcome",
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(
+      z.object({
+        date: z.string().refine(isValidDate, "Use YYYY-MM-DD").optional(),
+        outcomes: z
+          .array(
+            z.object({
+              taskId: z.string(),
+              start: z.string().refine(isValidTime, "Use HH:MM"),
+              outcome: z.enum(["done", "partial", "skipped"]),
+              minutes: z.number().int().min(0).max(24 * 60).nullable().optional(),
+              note: z.string().max(500).nullable().optional(),
+            }),
+          )
+          .min(1)
+          .max(50),
+      }),
+      req.body,
+    );
+    recordOutcomes(c.db, body.date ?? localNow(c.tz).date, body.outcomes, c.tz);
+    res.json({ state: state(req, c) });
   }),
 );
 

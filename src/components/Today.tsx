@@ -7,6 +7,7 @@ import { ProposalCard } from "./ProposalCard";
 import { ActualTime, doneTodayTasks, MorningCheckIn, WrapUpPanel } from "./DayRhythm";
 import { NowCard } from "./NowCard";
 import { DayBar } from "./DayBar";
+import { EarlierToday } from "./History";
 import { StepList, TimerButton } from "./TaskTools";
 import { isWeekProposal, Week } from "./Week";
 import { ActionSheet, DecisionRow, MoveSheet, type MoveChoice } from "./MoveSheet";
@@ -279,6 +280,7 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
         </>
       )}
 
+      <EarlierToday state={state} actions={actions} />
       <Meetings state={state} actions={actions} date={state.today} meetings={state.meetings} label="today" />
       <Completed state={state} plan={plan} onToggle={complete} actions={actions} />
     </>

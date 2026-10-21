@@ -151,6 +151,51 @@ export interface Plan extends PlanDraft {
   source: "nikki" | "user-edit" | "demo";
 }
 
+/** What the user said happened in a planned block. Separate from the task's own status. */
+export type BlockOutcome = "done" | "partial" | "skipped" | "rescheduled";
+
+/**
+ * Where a planned block stands in the day's history:
+ * the four recorded outcomes, plus "unconfirmed" (its time came and nobody said what happened),
+ * "replaced" (the task was finished, so a later block wasn't needed), "removed" (the task was deleted)
+ * and "planned" (still ahead).
+ */
+export type HistoryStatus = BlockOutcome | "unconfirmed" | "replaced" | "removed" | "planned";
+
+export interface HistoryItem {
+  /** `${taskId}|${start}`: stable across plan versions, so edits to a block's end don't create duplicates. */
+  key: string;
+  date: string;
+  taskId: string;
+  title: string;
+  start: string;
+  end: string;
+  /** The end it had when first planned (differs if it was extended or trimmed). */
+  originalEnd: string;
+  kind: "focus" | "task";
+  status: HistoryStatus;
+  /** True when the status comes from the user's own answer rather than being worked out. */
+  recorded: boolean;
+  note: string | null;
+  plannedMinutes: number;
+  /** Minutes of actual work recorded against this block (timer or confirmed), not its planned length. */
+  workedMinutes: number;
+  /** Still in the current plan for that day. */
+  inCurrentPlan: boolean;
+}
+
+export interface WorkSession {
+  id: string;
+  taskId: string;
+  date: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  minutes: number;
+  source: "timer" | "confirmed";
+  blockStart: string | null;
+  note: string | null;
+}
+
 export interface TaskChange {
   id: string;
   taskId: string;
@@ -232,6 +277,10 @@ export interface AppState {
   storageWarning: string | null;
   /** The frontend build the server is serving (see server/build.ts). */
   buildId: string | null;
+  /** Today's planned blocks that already began or were rescheduled/removed — the day's record. */
+  history: HistoryItem[];
+  /** Actual work recorded today. */
+  sessions: WorkSession[];
   drafts: TaskDraft[];
   /** Today's evening wrap-up, if done. */
   wrapUpToday: WrapUp | null;

@@ -4,6 +4,7 @@ import { api, ApiError } from "../api";
 import type { AppActions } from "../App";
 import { fmtDate, fmtDuration } from "../util";
 import { DecisionRow, type MoveChoice } from "./MoveSheet";
+import { UnrecordedBlocks } from "./History";
 
 type WrapAction = "tomorrow" | "date" | "done" | "someday" | "drop";
 const WRAP_LABELS: Record<WrapAction, string> = { tomorrow: "Tomorrow", date: "Pick a day", done: "Done", someday: "Someday", drop: "Delete" };
@@ -101,6 +102,8 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
           <p className="muted small">Nothing marked done.</p>
         )}
       </div>
+
+      <UnrecordedBlocks state={state} actions={actions} />
 
       {open.length > 0 && (
         <div className="wrap-section">

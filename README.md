@@ -100,6 +100,21 @@ Safety: on Railway (or anywhere `PUBLIC_DEPLOYMENT=true` is set), the app **refu
 
 To use your own domain later (for example `nikki.revivosporttech.com`), add it under **Settings → Networking → Custom Domain**, then add the CNAME record Railway shows you at your domain provider.
 
+### Backups and rolling back an update
+
+Your data is one SQLite file (`/data/nikki.db`) on the Railway volume. Updates to Nikki's code never delete it, and changes to how data is stored are **additive only** (new tables or columns are added; nothing is dropped or rewritten), so the previous version of the code can still read a migrated file.
+
+Three layers of protection:
+
+1. **Automatic copy before an upgrade.** The first time a new version starts on an existing database whose layout is older, Nikki copies it next to itself (for example `nikki.db.v0-before-v2-2026-10-21T….bak`) *before* changing anything, and keeps the five most recent copies. The deploy log says `[db] Saved a copy of nikki.db before upgrading it`. These sit on the same volume, so they protect against a bad upgrade, not against losing the volume.
+2. **Your own copy, off the server.** **Context → Data → Export my data** downloads everything as a file (tasks, plans and every plan version, work sessions, outcomes, journal, settings). Do this before any big change. **Import from a file** puts it back.
+3. **Plan history is never overwritten.** Every plan edit adds a new version; old versions stay in the database, and the day's record (**Earlier today**) is built from them.
+
+**To roll back after a bad update:**
+1. In Railway, open the previous good deployment (**Deployments → ⋯ → Redeploy**) — or revert the commit on GitHub. Because changes are additive, your data keeps working with the older code.
+2. Only if the data itself looks wrong: in Railway's **Console** tab for the service, list the copies with `ls -l /data`, then make a working copy of the one you want — `cp /data/<the .bak file> /data/nikki-restored.db` (never overwrite the live `nikki.db` while the app is running) — and in **Variables** set `DATABASE_PATH=/data/nikki-restored.db`. Nikki restarts on the restored copy. To go back, set `DATABASE_PATH=/data/nikki.db` again.
+3. Or use **Import from a file** with an export you downloaded earlier.
+
 ---
 
 ## 4. Settings (`.env`)

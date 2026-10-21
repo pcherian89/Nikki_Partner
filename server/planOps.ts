@@ -32,7 +32,12 @@ import {
   saveWrapUp,
   addMessage,
   getTask,
+  listSessions,
+  recordBlockOutcome,
+  addConfirmedSession,
+  type BlockOutcomeValue,
 } from "./db.js";
+import { dayHistory } from "./history.js";
 import { freeSegments } from "./scheduler.js";
 import { currentBuildId } from "./build.js";
 import { getProvider } from "./provider/index.js";
@@ -41,7 +46,7 @@ import { feedInfo } from "./calendar.js";
 import { getFeedToken } from "./icsExport.js";
 import { LIST_FIELDS, recordDecision } from "./contextMemory.js";
 import { addDays, fromMinutes, isValidTimeZone, isValidTime, localDateOf, localNow, toMinutes, weekdayOf } from "./time.js";
-import { validatePlanDraft, WORK_KINDS } from "./validate.js";
+import { freeMinutes, validatePlanDraft, WORK_KINDS, workMinutes } from "./validate.js";
 
 export function resolveTimezone(profile: Profile, headerTz: string | undefined): string {
   if (isValidTimeZone(profile.timezone)) return profile.timezone;
@@ -107,6 +112,8 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined):
     nikkiFeedToken: getFeedToken(db) || null,
     storageWarning: ws === "personal" ? config.storageWarning : null,
     buildId: currentBuildId(),
+    history: dayHistory(db, now.date, tz, now),
+    sessions: listSessions(db, now.date),
     hasAnyData: messages.length > 0 || tasks.length > 0 || !!profile.updatedAt || feedInfo(db).length > 0,
   };
 }
@@ -204,7 +211,7 @@ export function confirmProposal(
     const accepted = new Set(opts.acceptedTaskChangeIds ?? p.taskChanges.map((c) => c.id));
     for (const c of p.taskChanges) {
       if (!accepted.has(c.id)) continue;
-      applyTaskChange(db, c, { today: now.date, skipPlanDate: p.plan?.date ?? null });
+      applyTaskChange(db, c, { today: now.date, nowMin: toMinutes(now.time), skipPlanDate: p.plan?.date ?? null });
     }
 
     if (p.plan) {
@@ -219,22 +226,31 @@ export function confirmProposal(
       // For tomorrow's plan nothing is in the past yet.
       const nowMin = p.date === now.date ? toMinutes(now.time) : -1;
       const newBlocks = draft.blocks.filter((b) => b.kind !== "meeting");
-      // Preserve completed work and the past from the current confirmed plan.
-      const preserved = (current?.blocks ?? []).filter((b) => {
-        if (b.kind === "meeting") return false;
+      // Keep what already happened. A block that has started stays (cut back to where the new plan takes over if they
+      // overlap); so does a block for a task that is already done. Only blocks still ahead are replaced by the new plan.
+      const overlapsNew = (b: PlanBlock) => newBlocks.filter((n) => toMinutes(n.start) < toMinutes(b.end) && toMinutes(b.start) < toMinutes(n.end));
+      const preserved: PlanBlock[] = [];
+      for (const b of current?.blocks ?? []) {
+        if (b.kind === "meeting") continue;
         const done = b.taskId ? tasks.get(b.taskId)?.status === "done" : false;
-        const past = toMinutes(b.end) <= nowMin;
-        if (!(done || past)) return false;
-        return !newBlocks.some((n) => toMinutes(n.start) < toMinutes(b.end) && toMinutes(b.start) < toMinutes(n.end));
-      });
-      const preservedWork = preserved.filter((b) => WORK_KINDS.has(b.kind)).reduce((s, b) => s + toMinutes(b.end) - toMinutes(b.start), 0);
+        const begun = toMinutes(b.start) < nowMin;
+        if (!(done || begun)) continue;
+        const clashes = overlapsNew(b);
+        if (!clashes.length) preserved.push(b);
+        else if (begun) {
+          const cut = Math.min(...clashes.map((n) => toMinutes(n.start)));
+          if (cut - toMinutes(b.start) >= 5) preserved.push({ ...b, end: fromMinutes(cut) });
+        }
+      }
       const { meetings, blocks } = withMeetingBlocks(db, p.date, [...preserved, ...newBlocks]);
       const windowStart = [draft.window.start, ...preserved.map((b) => b.start)].filter(isValidTime).sort()[0] ?? draft.window.start;
       const windowEnd = [draft.window.end, ...preserved.map((b) => b.end)].filter(isValidTime).sort().pop() ?? draft.window.end;
+      // The budget follows from the blocks: never the model's figure plus work already done (that counted it twice).
+      const free = freeMinutes({ start: windowStart, end: windowEnd }, meetings);
       const final: PlanDraft = {
         ...draft,
         window: { start: windowStart, end: windowEnd },
-        workBudgetMinutes: draft.workBudgetMinutes + (current ? preservedWork : 0),
+        workBudgetMinutes: Math.min(free, Math.max(draft.workBudgetMinutes, workMinutes({ blocks }))),
         blocks,
       };
       const errors = validatePlanDraft(final, {
@@ -265,12 +281,14 @@ export function discardProposal(db: DB, id: string) {
 function applyTaskChange(
   db: DB,
   c: { taskId: string; change: string; title: string | null; estimateMinutes: number | null; deadline: string | null; plannedDate?: string | null; notes: string | null },
-  days: { today: string; skipPlanDate: string | null },
+  days: { today: string; nowMin: number; skipPlanDate: string | null },
 ) {
   const tomorrow = addDays(days.today, 1);
   // Keep confirmed plans in step with the change. The plan being confirmed in the same step is replaced anyway.
   const takeOff = (dates: string[], why: string) => {
-    for (const d of dates) if (d !== days.skipPlanDate) removeTaskFromPlan(db, d, c.taskId, why);
+    for (const d of dates) {
+      if (d !== days.skipPlanDate) removeTaskFromPlan(db, d, c.taskId, why, d === days.today ? { nowMin: days.nowMin, note: why } : undefined);
+    }
   };
   switch (c.change) {
     case "update": {
@@ -311,9 +329,23 @@ function applyTaskChange(
  * Takes a task off a day's confirmed plan: its blocks, focus and supporting slots.
  * The work budget shrinks by the removed time so the numbers keep adding up.
  */
-export function removeTaskFromPlan(db: DB, date: string, taskId: string, why: string): boolean {
+export function removeTaskFromPlan(
+  db: DB,
+  date: string,
+  taskId: string,
+  why: string,
+  /** When the user moved the work: blocks that had already begun are recorded as "rescheduled" (never silently lost). */
+  record?: { nowMin: number; note: string },
+): boolean {
   const plan = currentPlan(db, date);
   if (!plan) return false;
+  if (record) {
+    for (const b of plan.blocks) {
+      if (b.taskId === taskId && WORK_KINDS.has(b.kind) && toMinutes(b.start) < record.nowMin) {
+        recordBlockOutcome(db, { date, taskId, start: b.start, outcome: "rescheduled", note: record.note }, false);
+      }
+    }
+  }
   const inPlan = plan.blocks.some((b) => b.taskId === taskId) || plan.focusTaskId === taskId || plan.supporting.some((s) => s.taskId === taskId);
   if (!inPlan) return false;
   const { id: _i, version, status: _s, createdAt: _c, proposalId: _p, source: _so, ...draft } = plan;
@@ -340,7 +372,10 @@ export type RescheduleInput = { to: "later_today" } | { to: "date"; date: string
  * Direct user action for work that didn't get done: fit it into a free gap later today,
  * move it to another day, or take it off the calendar ("someday"). Applies immediately.
  */
-export function rescheduleTask(db: DB, taskId: string, input: RescheduleInput, timezone: string) {
+export function rescheduleTask(db: DB, taskId: string, input: RescheduleInput, timezone: string, opts: { recordBlocks?: boolean } = {}) {
+  // From the day-end review the blocks stay "not recorded" until you answer for them; a move you make during the day
+  // is itself the answer for blocks that already ran.
+  const recordBlocks = opts.recordBlocks ?? true;
   const task = getTask(db, taskId);
   if (!task) throw new UserFacingError("Task not found.", 404, "not_found");
   const now = localNow(timezone);
@@ -398,6 +433,9 @@ export function rescheduleTask(db: DB, taskId: string, input: RescheduleInput, t
       const errors = validatePlanDraft(final, { meetings, tasks: taskMap(db) });
       if (errors.length) throw new UserFacingError("That doesn't fit today's plan.", 422, "invalid_plan", errors);
       savePlanVersion(db, final, { expectedVersion: version, proposalId: null, source: "user-edit" });
+      if (recordBlocks) {
+        for (const b of missed) recordBlockOutcome(db, { date: now.date, taskId, start: b.start, outcome: "rescheduled", note: `Moved to ${added[0].start}` }, false);
+      }
       updateTask(db, taskId, { plannedDate: now.date, status: task.status === "done" ? "done" : "open" });
       return { message: `Moved “${task.title}” to ${added[0].start}.` };
     }
@@ -405,7 +443,8 @@ export function rescheduleTask(db: DB, taskId: string, input: RescheduleInput, t
       if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || input.date < now.date) throw new UserFacingError("Pick today or a later date.");
       const wasDue = task.plannedDate != null && task.plannedDate <= now.date;
       const inTodayPlan = !!currentPlan(db, now.date)?.blocks.some((b) => b.taskId === taskId);
-      if (input.date !== now.date) removeTaskFromPlan(db, now.date, taskId, `Moved to ${input.date}.`);
+      const rec = recordBlocks ? { nowMin: toMinutes(now.time), note: `Moved to ${input.date}` } : undefined;
+      if (input.date !== now.date) removeTaskFromPlan(db, now.date, taskId, `Moved to ${input.date}.`, rec);
       const tomorrow = addDays(now.date, 1);
       if (input.date !== tomorrow) removeTaskFromPlan(db, tomorrow, taskId, `Moved to ${input.date}.`);
       const slipped = input.date > now.date && (wasDue || inTodayPlan);
@@ -416,7 +455,7 @@ export function rescheduleTask(db: DB, taskId: string, input: RescheduleInput, t
       });
       return { message: input.date === now.date ? `“${task.title}” is on for today.` : `Moved “${task.title}” to ${input.date}.` };
     }
-    removeTaskFromPlan(db, now.date, taskId, "Moved to someday.");
+    removeTaskFromPlan(db, now.date, taskId, "Moved to someday.", recordBlocks ? { nowMin: toMinutes(now.time), note: "Moved to someday" } : undefined);
     removeTaskFromPlan(db, addDays(now.date, 1), taskId, "Moved to someday.");
     updateTask(db, taskId, { plannedDate: null });
     return { message: `“${task.title}” is off the calendar. It stays in Everything.` };
@@ -431,7 +470,9 @@ export function editPlan(db: DB, input: { expectedVersion: number; plan: unknown
   const date = input.date === addDays(now.date, 1) ? input.date : now.date;
   const draft = normaliseDraft(date, parsed.data);
   const { meetings, blocks } = withMeetingBlocks(db, date, draft.blocks);
-  const final = { ...draft, blocks };
+  // The budget follows from the blocks, so moving or stretching one never trips an internal budget check.
+  const free = Number.isFinite(toMinutes(draft.window.end) - toMinutes(draft.window.start)) ? freeMinutes(draft.window, meetings) : draft.workBudgetMinutes;
+  const final = { ...draft, blocks, workBudgetMinutes: Math.min(free, Math.max(draft.workBudgetMinutes, workMinutes({ blocks }))) };
   const errors = validatePlanDraft(final, { meetings, tasks: taskMap(db) });
   if (errors.length) throw new UserFacingError("That change doesn't fit the plan.", 422, "invalid_plan", errors);
   try {
@@ -455,9 +496,9 @@ export function reviewNewDay(db: DB, decisions: { taskId: string; action: Review
       if (!t) continue;
       if (d.action === "done") updateTask(db, d.taskId, { status: "done" });
       else if (d.action === "today") updateTask(db, d.taskId, { plannedDate: today, status: "open", rolloverCount: t.rolloverCount + 1 });
-      else if (d.action === "tomorrow") rescheduleTask(db, d.taskId, { to: "date", date: addDays(today, 1) }, timezone);
-      else if (d.action === "date" && d.date) rescheduleTask(db, d.taskId, { to: "date", date: d.date }, timezone);
-      else if (d.action === "someday") rescheduleTask(db, d.taskId, { to: "someday" }, timezone);
+      else if (d.action === "tomorrow") rescheduleTask(db, d.taskId, { to: "date", date: addDays(today, 1) }, timezone, { recordBlocks: false });
+      else if (d.action === "date" && d.date) rescheduleTask(db, d.taskId, { to: "date", date: d.date }, timezone, { recordBlocks: false });
+      else if (d.action === "someday") rescheduleTask(db, d.taskId, { to: "someday" }, timezone, { recordBlocks: false });
       else if (d.action === "drop") deleteTaskEverywhere(db, d.taskId, today);
     }
     setSetting(db, "review_done", today);
@@ -524,9 +565,9 @@ export function wrapUpDay(db: DB, input: { decisions: WrapDecision[]; note: stri
     for (const d of input.decisions) {
       if (!getTask(db, d.taskId)) continue;
       if (d.action === "done") updateTask(db, d.taskId, { status: "done" });
-      else if (d.action === "tomorrow") rescheduleTask(db, d.taskId, { to: "date", date: addDays(today, 1) }, timezone);
-      else if (d.action === "date" && d.date) rescheduleTask(db, d.taskId, { to: "date", date: d.date }, timezone);
-      else if (d.action === "someday") rescheduleTask(db, d.taskId, { to: "someday" }, timezone);
+      else if (d.action === "tomorrow") rescheduleTask(db, d.taskId, { to: "date", date: addDays(today, 1) }, timezone, { recordBlocks: false });
+      else if (d.action === "date" && d.date) rescheduleTask(db, d.taskId, { to: "date", date: d.date }, timezone, { recordBlocks: false });
+      else if (d.action === "someday") rescheduleTask(db, d.taskId, { to: "someday" }, timezone, { recordBlocks: false });
       else if (d.action === "drop") deleteTaskEverywhere(db, d.taskId, today);
     }
     const done = doneToday(db, timezone);
@@ -567,4 +608,33 @@ export function rebuildPlanMeetings(db: DB, date: string, today: string): string
   }
   savePlanVersion(db, draft, { expectedVersion: version, proposalId: null, source: "user-edit" });
   return null;
+}
+
+/**
+ * Records what the user says happened in planned blocks. This changes nothing about the tasks themselves: finishing a
+ * task is a separate action. Actual time is only added from what the user confirms here (or from the timer elsewhere).
+ */
+export type OutcomeInput = { taskId: string; start: string; outcome: "done" | "partial" | "skipped"; minutes?: number | null; note?: string | null };
+
+export function recordOutcomes(db: DB, date: string, inputs: OutcomeInput[], timezone: string) {
+  const now = localNow(timezone);
+  if (date > now.date) throw new UserFacingError("You can only record what happened on a day that has started.", 400, "invalid");
+  const items = new Map(dayHistory(db, date, timezone, now).map((i) => [i.key, i]));
+  db.transaction(() => {
+    for (const o of inputs) {
+      const item = items.get(`${o.taskId}|${o.start}`);
+      if (!item) throw new UserFacingError("That block isn't part of the day's record.", 404, "not_found");
+      let minutes: number | null = null;
+      if (o.outcome === "done") {
+        // "Did it" confirms the block ran as planned — unless the timer already recorded work for this task that day.
+        minutes = item.workedMinutes > 0 ? null : item.plannedMinutes;
+      } else if (o.outcome === "partial" && o.minutes != null) {
+        minutes = Math.max(0, Math.round(o.minutes));
+      }
+      // Changing an answer replaces the time confirmed with the earlier one, so nothing is counted twice.
+      db.prepare("DELETE FROM work_sessions WHERE source = 'confirmed' AND task_id = ? AND date = ? AND block_start = ?").run(o.taskId, date, o.start);
+      recordBlockOutcome(db, { date, taskId: o.taskId, start: o.start, outcome: o.outcome as BlockOutcomeValue, minutes, note: o.note ?? null });
+      if (minutes) addConfirmedSession(db, { taskId: o.taskId, date, minutes, blockStart: o.start });
+    }
+  })();
 }

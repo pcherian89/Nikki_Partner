@@ -37,7 +37,7 @@ import { buildAppState, boundedHistory, SYSTEM_PROMPT } from "./prompt.js";
 import { getProvider } from "./provider/index.js";
 import { ProviderError, ProviderMessage } from "./provider/types.js";
 import { ModelResponse, RESPONSE_JSON_SCHEMA } from "./schema.js";
-import { addDays, weekdayOf, isValidDate, isValidTime, localNow, toMinutes } from "./time.js";
+import { addDays, fromMinutes, weekdayOf, isValidDate, isValidTime, localNow, toMinutes } from "./time.js";
 import { findDuplicate, validateMeeting, validatePlanDraft } from "./validate.js";
 
 export class UserFacingError extends Error {
@@ -218,7 +218,8 @@ export function resolveResponse(
     planErrors = validatePlanDraft(draft, {
       meetings: allMeetings,
       tasks: taskMap,
-      notBefore: editingToday ? ctx.now : null,
+      // A few minutes' grace: "2:30" said at 2:31 should still mean 2:30.
+      notBefore: editingToday ? fromMinutes(Math.max(0, toMinutes(ctx.now) - 10)) : null,
     });
     // Tasks already done shouldn't be scheduled again.
     for (const b of blocks) {

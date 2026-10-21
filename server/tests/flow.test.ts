@@ -179,10 +179,11 @@ test("plan edits are validated: overlaps, meetings, window and budget", async ()
   const r2 = await api("PUT", "/api/plan", { expectedVersion: version, plan: outside });
   assert.equal(r2.status, 422);
   assert.ok(r2.json.details.some((d: string) => /outside the available window/.test(d)));
-  const overBudget = { ...draft, workBudgetMinutes: 60 };
-  const r3 = await api("PUT", "/api/plan", { expectedVersion: version, plan: overBudget });
-  assert.equal(r3.status, 422);
-  assert.ok(r3.json.details.some((d: string) => /budget/.test(d)));
+  // The work budget follows from the blocks, so a figure that is too low never blocks an edit — it is raised to match.
+  const lowBudget = { ...draft, workBudgetMinutes: 60 };
+  const r3 = await api("PUT", "/api/plan", { expectedVersion: version, plan: lowBudget });
+  assert.equal(r3.status, 200);
+  assert.ok(r3.json.state.plan.workBudgetMinutes >= workMinutes(r3.json.state.plan));
 });
 
 test("validator rejects moved meetings and unknown tasks", () => {
@@ -649,7 +650,7 @@ test("focus timer: one at a time; finishing records time", async () => {
   assert.equal(s2.tasks.find((t: any) => t.id === a.id).timerStartedAt, null, "starting B pauses A");
   assert.ok(s2.tasks.find((t: any) => t.id === b.id).timerStartedAt);
   // simulate 40 minutes of focus on B
-  getDb("demo").prepare("UPDATE tasks SET timer_started_at = ? WHERE id = ?").run(new Date(Date.now() - 40 * 60000).toISOString(), b.id);
+  getDb("demo").prepare("UPDATE tasks SET timer_started_at = ? WHERE id = ?").run(new Date(new Date(process.env.NIKKI_FAKE_NOW!).getTime() - 40 * 60000).toISOString(), b.id);
   const done = (await api("PATCH", `/api/tasks/${b.id}`, { status: "done" })).json.task;
   assert.equal(done.timerStartedAt, null);
   assert.equal(done.spentMinutes, 40);

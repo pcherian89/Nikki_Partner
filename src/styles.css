@@ -2669,3 +2669,71 @@ details summary {
   margin-bottom: 12px;
   font-size: 14px;
 }
+
+/* ---------- the day's record ---------- */
+.history-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.history-row {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.history-row:first-child {
+  border-top: 0;
+}
+.history-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.history-time {
+  font-size: 13px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.history-title {
+  font-weight: 600;
+}
+.history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.history-row.status-replaced .history-title,
+.history-row.status-removed .history-title,
+.history-row.status-skipped .history-title {
+  color: var(--text-3);
+}
+.outcome-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.outcome-minutes {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.outcome-minutes input {
+  width: 84px;
+}
+@media (max-width: 900px) {
+  .outcome-buttons .btn {
+    flex: 1;
+  }
+  .outcome-minutes {
+    width: 100%;
+  }
+  .outcome-minutes input {
+    flex: 1;
+  }
+}
