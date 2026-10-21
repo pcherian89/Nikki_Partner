@@ -140,37 +140,22 @@ Finishing a task does **not** mark earlier planned blocks done. They stay "Not r
 ## Scope
 Stage C: command layer, task-first Today and Tomorrow, priority and deadlines, flexible scheduling, timers, history accuracy, replanning. Stage D: reminders and in-app reminder behaviour. **Not in scope:** device notifications, recurring items, web push.
 
-## Roadmap
+## Roadmap and status
 
 | Stage | Content | Status |
 |---|---|---|
 | A, B | Architecture, history and data-safety foundation | Done |
-| C | Task-first planning, priority/deadlines, timers, forgotten-time handling, shared chat/UI command layer | Built; awaiting your sign-off |
-| D | Reminders (in-app only; no claims about device notifications until verified) | Not started — needs approval |
-| E | Long-term projects and goals | Not started — needs approval |
+| C | Task-first day, timers, pinned blocks, overrun conflicts, shared chat/UI command layer, end-of-day review | Done and tested |
+| D | Reminders: in-app (verified); closed-app web push (built, **not verified on a real device**) | Done; push unverified |
+| E | Long-term projects: Project → Milestones → ordinary tasks; proposal-confirmed; progress from real states | Done and tested |
+| F | Strategic guidance in the same chat; confirmed-only structured memory; weekly review from app-counted facts | Done and tested with scripted replies; real-model behaviour unverified |
 
-## Stage E — long-term projects and goals (planned, not built)
+## How the later stages work (as built)
 
-**Idea:** a goal is a container for tasks, not a new kind of task. Everything below reuses the Stage C task, session and block system.
+**Reminders.** Separate from tasks, deadlines, blocks and commitments. One-time, linked to a task or standalone, optionally counting down from a task deadline or project target date (they follow it if it moves). Stored as absolute instants with the user's timezone; the server fires them every 20 seconds with a compare-and-set so each fires once. When due they show on Today until done or snoozed. Closed-app delivery uses opt-in Web Push; a device counts as *verified* only after its own service worker acknowledges a test push.
 
-```
-Project / Goal → Milestones → Tasks → Work sessions
-```
+**Projects.** `projects`, `milestones`, plus `tasks.project_id/milestone_id`. Nikki proposes (never saves) a plan; the user confirms with the same Confirm as a day plan. Tasks start unassigned, so a project never floods Today; next actions are the first three open tasks of the earliest open milestone. Progress is counted (tasks, milestones, recorded time), never estimated. Milestones complete only when the user says so. Pause, resume, complete and archive are quick actions with Undo.
 
-- **Project/Goal:** title, optional target date, optional notes. Stored persistently. Lives in its own table; tasks point to it with `project_id`.
-- **Milestone:** a dated or undated checkpoint inside a project, with its own open/done state. Tasks may point to a milestone.
-- **Tasks:** exactly the same tasks as today (assigned day, priority, deadline, timer, sessions). A project task is not a different thing and appears on Today/Tomorrow/Week like any other.
-- **Nikki breaks a goal down** into milestones and a first set of tasks, as a **proposal the user approves** (same preview-and-Confirm pattern as plans). Significant milestone or deadline changes are proposals too.
-- **No flooding:** a project never pushes all its tasks onto the daily list. Only the next few actions are *assigned to a day* (a small, capped number, default 3, set by the user); the rest stay in the project, unassigned. Nikki suggests the next actions; the user (or an approved suggestion) assigns them.
-- **Progress** comes only from real states: milestones done / total, tasks done / total, recorded time. No AI-estimated percentages.
-- **UI:** a simple Projects list (or a "Project" filter in Everything) and one project page: milestones, next actions, remaining tasks, recorded time. No dashboards, no dependency graphs, no Gantt.
-- **Chat/UI parity:** project actions go through the same command layer (`server/commands.ts`) with receipts and Undo.
+**Strategic guidance and memory.** No separate mode: the same chat, with the app's records (projects, recorded time, deadlines) and a small structured memory (`memory_items`: focus, priority, commitment, goal, constraint, decision, paused, idea; each *confirmed / tentative / assumption / recommendation / approved / outdated*). Memory is changed directly by the user or by Nikki only after the user confirms; tentative items expire for review after 30 days and are then not given to the model; at most 80 items; outdated items are never used. Only a bounded, relevance-filtered slice is sent to the model. Discussing an idea never creates anything.
 
-### Stage C provisions that keep this compatible (already in place)
-- `tasks.project` already exists (a free-text label); Stage E adds `project_id` and `milestone_id` as nullable additive columns, so no existing task changes.
-- Tasks are independent of schedule: an assigned day is just `planned_date`, so "assign the next three project tasks to a day" needs nothing new.
-- The command layer (`ActionRequest`, receipts, Undo records) is extensible by adding action types; a project-breakdown proposal reuses the existing proposal table and Confirm flow.
-- Work sessions are per task, so project time is a sum over its tasks.
-- Migrations are additive with a pre-migration snapshot (`SCHEMA_VERSION` + `PRAGMA user_version`), so adding Stage E tables is a normal, reversible step.
-
-Nothing in Stage E is implemented. It needs separate approval.
+**Weekly review.** Optional, from the Today menu. The app counts the last seven days (done, unfinished, recorded time, per-project movement, neglected projects, upcoming deadlines, decisions) and lists what it can't see (finished tasks with no time, days without recorded time, unchecked time, missing estimates). Nikki interprets those counts; the counts are shown alongside her words. Demo mode produces a plain factual summary without a model.

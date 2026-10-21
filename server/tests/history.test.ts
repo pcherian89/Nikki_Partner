@@ -395,7 +395,7 @@ test("migration: an existing database is copied aside first and its data is unto
     `);
     const info = JSON.parse(out.trim().split("\n").pop()!);
     assert.equal(info.version, SCHEMA_VERSION);
-    assert.ok(info.tables.includes("work_sessions") && info.tables.includes("block_outcomes"));
+    for (const t of ["work_sessions", "block_outcomes", "reminders", "projects", "milestones", "memory_items", "push_subscriptions", "secrets"]) assert.ok(info.tables.includes(t), `table ${t} added`);
     assert.deepEqual(info.titles, ["Existing task"], "existing tasks survive");
     const baks = fs.readdirSync(dir).filter((f) => f.endsWith(".bak"));
     assert.equal(baks.length, 1, "one copy was taken before the upgrade");

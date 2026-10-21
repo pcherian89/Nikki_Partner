@@ -251,6 +251,17 @@ The workspace is chosen with the `X-Workspace: personal|demo` header. The browse
 
 **To replace either image:** save the new file with the same name, then run `npm run build` again. If an image can't load, the app falls back to the round portrait or an "N" monogram, so it never shows a broken image.
 
+## Using Nikki day to day
+
+- **Capture anything** in the box on Today ("+ Add task") or in chat: "Add five tasks for tomorrow", "The report is due Friday at 4 PM, high priority". A task needs only a title. A day, priority and deadline are separate and optional; nothing is scheduled until you ask.
+- **Start any task** with its Start button. Pause, resume or finish whenever. Forgot the timer? ⋯ → **Add time worked**. A timer that ran for hours is shown as "needs a check" and isn't counted until you confirm or correct it.
+- **Plan the day only if you want to**: tell Nikki "Plan my day". Times you name ("call the bank at 3") are pinned and kept when she replans. A plan shows what's **not scheduled** and what's **at risk**.
+- **Reminders**: "Remind me tomorrow morning to follow up on the proposal", or Today ⋯ → Add a reminder. Due reminders appear at the top of Today. For notifications while Nikki is closed: Context → *Reminders & notifications* → Turn on, then **Send a test**. It says "Verified" only after the test actually arrives on your device (on iPhone, add Nikki to your Home Screen first).
+- **Projects**: tell Nikki about a goal that takes weeks or months. She asks only what she needs, proposes milestones and first tasks, and saves nothing until you confirm. Find projects at the top of **Everything**. Project tasks stay off Today until you add them.
+- **Decisions and priorities**: talk them through in chat. Nikki compares options, says what she doesn't know, and may challenge a plan. Nothing changes until you confirm. See, correct or remove what she remembers in **Context → What Nikki remembers**.
+- **Weekly review**: Today ⋯ → Weekly review.
+- **Checking the real AI**: `ANTHROPIC_API_KEY=… npm run check:live` runs a short script against the real Claude API using a throwaway database.
+
 ## 7. Status: what's verified, simulated and untested
 
 **Verified in the build environment** (automated tests in `server/tests/flow.test.ts` plus a scripted Chromium run):
@@ -268,6 +279,12 @@ The workspace is chosen with the `X-Workspace: personal|demo` header. The browse
 - API failures (rate limit, invalid JSON, invalid plan → one repair attempt), using a fake provider
 - export and delete
 - demo/personal data separation
+
+**Stages C–F, verified in the build environment** (`npm test`: 116 tests including `integrated.test.ts`, a 15-step story across several days; plus scripted Chromium runs at 1280px and 390px):
+
+- Stage D: reminders in-app, task- and project-anchored, fired exactly once, persisted across restarts; push logic with a simulated push service
+- Stage E: projects confirmed by the user, linked to ordinary tasks, progress from real states
+- Stage F: confirmed-only memory with expiry and a size cap, weekly review counts, discussion never creating anything
 
 **Stage C (task-first planning), verified in the build environment** (`server/tests/stagec.test.ts` + scripted Chromium at 1280px and 390px):
 
@@ -287,9 +304,10 @@ See `docs/planning-spec.md` for the approved behaviour, the Stage E (projects/go
 
 **Not yet tested:**
 
-- **Stage C with a real model.** The new `actions` field (start/pause/finish/report time/priority/deadline/move day) is exercised only with a fake provider; real Claude may phrase or choose actions differently.
+- **Stages C–F with a real model.** `npm run check:live` exists for this and was not run (no API key in the build environment; the Claude API itself was reachable).
+- **Closed-app notifications on a real device.** Push is built; delivery to a phone or browser has not been observed. It is shown as "Verified" in the app only after your device confirms a test.
 - **Stage C on Railway.** Not deployed or checked from the build environment; a push is not proof that it is running.
-- Known gaps against the spec: blocks the user pins by stating a time are not yet marked "pinned"; the proposal card still says "Deferred" rather than separate "Not scheduled / At risk" sections; "Keep going" past a planned block changes nothing and does not preview collisions with later blocks; the demo planner still guesses estimates for items it captures.
+- The demo planner still uses internal duration guesses to build its scripted plan; blocks built that way are labelled provisional and the task keeps no estimate.
 
 - **Real calls to Claude.** No API key was available in the build environment, so the quality of Nikki's live replies and the exact structured-output behaviour with a real key still need a first run on your machine.
 - Real browsers other than Chromium (Safari, Firefox, iOS).

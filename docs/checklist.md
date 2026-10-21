@@ -14,5 +14,9 @@
 | C | Real Claude test | Cannot run here (no API key). `npm run check:live` provided |
 | D | Reminders: in-app (verified), closed-app push (built, NOT verified on a real device) | Done; push unverified |
 | E | Projects: milestones, linked tasks, proposals, progress from real states, project reminders | Done + tested (API + browser) |
-| F | Strategic guidance + memory | |
+| F | Strategic guidance, confirmed-only memory, weekly review | Done + tested (scripted replies; real model unverified) |
+| — | Integrated 15-step scenario + failures/restart/multi-device/timezone | Done (`integrated.test.ts`) |
+| — | Browser: desktop 1280 and mobile 390 for C, D, E, F | Done, all pass |
+| — | Real-Claude check script | Provided; not run (no API key) |
+| — | Production deployment | Not deployed: Railway not reachable from the build environment; push made with [skip ci] |
 | — | Integrated scenario, browser, release | |
