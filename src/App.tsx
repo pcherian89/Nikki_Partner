@@ -50,6 +50,24 @@ function readStoredWorkspace(): Workspace | null {
   }
 }
 
+/**
+ * A phone keeps a home-screen app in memory and resumes it as it was. If the server is now serving a newer
+ * build than the one running here, reload once so the update actually shows.
+ */
+function reloadIfOutdated(serverBuild: string | null | undefined) {
+  if (!serverBuild) return false;
+  const running = [...document.querySelectorAll<HTMLScriptElement>("script[type=module][src]")].map((s) => new URL(s.src).pathname);
+  if (!running.length || running.includes(serverBuild)) return false;
+  try {
+    if (sessionStorage.getItem("nikki.reloadedFor") === serverBuild) return false;
+    sessionStorage.setItem("nikki.reloadedFor", serverBuild);
+  } catch {
+    /* storage unavailable: still reload once */
+  }
+  window.location.reload();
+  return true;
+}
+
 export default function App() {
   const [authNeeded, setAuthNeeded] = useState<boolean | null>(null);
   const [ws, setWs] = useState<Workspace | null>(null);
@@ -73,6 +91,7 @@ export default function App() {
   const load = useCallback(async () => {
     try {
       const r = await api("GET", "/api/state");
+      if (reloadIfOutdated(r.state.buildId)) return;
       setState(r.state);
       setLoadError(null);
     } catch (e) {

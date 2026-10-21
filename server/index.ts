@@ -656,7 +656,11 @@ if (fs.existsSync(path.join(distDir, "index.html"))) {
       },
     }),
   );
-  app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(path.join(distDir, "index.html")));
+  // The page itself is never cached, so opening the app always picks up the latest version.
+  app.get(/^(?!\/api\/).*/, (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(path.join(distDir, "index.html"));
+  });
 }
 
 // ---------- errors ----------

@@ -34,6 +34,7 @@ import {
   getTask,
 } from "./db.js";
 import { freeSegments } from "./scheduler.js";
+import { currentBuildId } from "./build.js";
 import { getProvider } from "./provider/index.js";
 import { estimationInsight } from "./learning.js";
 import { feedInfo } from "./calendar.js";
@@ -105,6 +106,7 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined):
     calendars: feedInfo(db),
     nikkiFeedToken: getFeedToken(db) || null,
     storageWarning: ws === "personal" ? config.storageWarning : null,
+    buildId: currentBuildId(),
     hasAnyData: messages.length > 0 || tasks.length > 0 || !!profile.updatedAt || feedInfo(db).length > 0,
   };
 }

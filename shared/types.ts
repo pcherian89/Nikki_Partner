@@ -230,6 +230,8 @@ export interface AppState {
   hasAnyData: boolean;
   /** Set when the server's data isn't on permanent storage (it would be lost on the next update). */
   storageWarning: string | null;
+  /** The frontend build the server is serving (see server/build.ts). */
+  buildId: string | null;
   drafts: TaskDraft[];
   /** Today's evening wrap-up, if done. */
   wrapUpToday: WrapUp | null;
