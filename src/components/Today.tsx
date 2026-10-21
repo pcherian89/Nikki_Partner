@@ -5,15 +5,14 @@ import { AutoTextarea } from "./AutoTextarea";
 import type { AppActions } from "../App";
 import { ProposalCard } from "./ProposalCard";
 import { ActualTime, doneTodayTasks, MorningCheckIn, WrapUpPanel } from "./DayRhythm";
-import { NowCard } from "./NowCard";
 import { DayBar } from "./DayBar";
 import { EarlierToday } from "./History";
-import { StepList, TimerButton } from "./TaskTools";
+import { AddTask, CarryLine, ContextBanner, DayTasks, FocusCard, useTimerControls } from "./TaskList";
 import { isWeekProposal, Week } from "./Week";
 import { ActionSheet, DecisionRow, MoveSheet, type MoveChoice } from "./MoveSheet";
 import { capacity, draftOf, fmtDate, fmtDuration, fmtRange, fmtTime, fromMin, taskById, toMin } from "../util";
 
-type Mode = "schedule" | "checklist";
+type Mode = "list" | "timeline";
 
 export function useCompletion(state: AppState, actions: AppActions) {
   return async (task: Task, done: boolean) => {
@@ -179,7 +178,8 @@ export function ProgressRing({ done, total, size = 44 }: { done: number; total: 
 }
 
 function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActions; busy: boolean }) {
-  const [mode, setMode] = useState<Mode>("schedule");
+  const [mode, setMode] = useState<Mode>("list");
+  const timers = useTimerControls(state, actions);
   const [replanOpen, setReplanOpen] = useState(false);
   const [wrapOpen, setWrapOpen] = useState(false);
   const canWrap = !!state.plan || doneTodayTasks(state).length > 0;
@@ -197,7 +197,8 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
     setReplanOpen(false);
   };
   const proposalToday = !!state.proposal?.plan && state.proposal.date === state.today;
-  const showNow = !state.newDay && !showCheckIn && !proposalToday && !wrapOpen && !replanOpen;
+  const quiet = !showCheckIn && !proposalToday && !wrapOpen && !replanOpen;
+  const dayOver = !!plan && !state.wrapUpToday && toMin(state.now) >= toMin(plan.window.end);
 
   return (
     <>
@@ -223,7 +224,6 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
         )}
       </div>
 
-      {state.newDay && <NewDayReview state={state} actions={actions} />}
       {showCheckIn && <MorningCheckIn state={state} actions={actions} />}
       {wrapOpen && <WrapUpPanel state={state} actions={actions} onClose={() => setWrapOpen(false)} busy={busy} />}
 
@@ -244,34 +244,48 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
 
       {replanOpen && plan && <ReplanForm plan={plan} state={state} actions={actions} onClose={() => setReplanOpen(false)} busy={busy} />}
 
-      {showNow && <NowCard state={state} actions={actions} plan={plan} onToggle={complete} onReplan={openReplan} onWrap={openWrap} />}
+      <FocusCard state={state} actions={actions} timers={timers} />
+      {quiet && <ContextBanner state={state} actions={actions} timers={timers} onWrap={dayOver ? openWrap : undefined} />}
 
       {plan && (
-        <>
-          <div className="row between center-y section-gap">
-            <div className="segmented" role="tablist" aria-label="Plan view">
-              <button className={mode === "schedule" ? "active" : ""} onClick={() => setMode("schedule")} role="tab" aria-selected={mode === "schedule"}>
-                Schedule
-              </button>
-              <button className={mode === "checklist" ? "active" : ""} onClick={() => setMode("checklist")} role="tab" aria-selected={mode === "checklist"}>
-                Checklist
-              </button>
-            </div>
+        <div className="row between center-y section-gap">
+          <div className="segmented" role="tablist" aria-label="Today view">
+            <button className={mode === "list" ? "active" : ""} onClick={() => setMode("list")} role="tab" aria-selected={mode === "list"}>
+              List
+            </button>
+            <button className={mode === "timeline" ? "active" : ""} onClick={() => setMode("timeline")} role="tab" aria-selected={mode === "timeline"}>
+              Timeline
+            </button>
           </div>
-          {mode === "schedule" ? (
-            <Schedule plan={plan} state={state} tasks={tasks} actions={actions} onToggle={complete} isToday />
-          ) : (
-            <Checklist plan={plan} tasks={tasks} onToggle={complete} actions={actions} />
+        </div>
+      )}
+      {mode === "list" || !plan ? (
+        <>
+          <DayTasks state={state} actions={actions} date={state.today} plan={plan} onToggle={complete} timers={timers} empty="Nothing for today yet. Add a task below or tell Nikki what’s on your plate." />
+          <CarryLine state={state} actions={actions} onToggle={complete}>
+            {state.newDay && <NewDayReview state={state} actions={actions} />}
+          </CarryLine>
+          {!plan && state.days[0]?.openIds.length > 0 && !state.proposal?.plan && (
+            <div className="row gap wrap plan-offer">
+              <button className="btn" onClick={() => actions.focusComposer("Plan my day. ")}>
+                Plan my day
+              </button>
+              <span className="muted small">Optional. You can start any task without a plan.</span>
+            </div>
           )}
+        </>
+      ) : (
+        <>
+          <Schedule plan={plan} state={state} tasks={tasks} actions={actions} onToggle={complete} isToday />
           <DayBar plan={plan} now={state.now} />
           {plan.deferred.length > 0 && (
             <details className="card deferred-card">
-              <summary className="section-summary">Deferred ({plan.deferred.length})</summary>
+              <summary className="section-summary">Not scheduled ({plan.deferred.length})</summary>
               <ul className="plain-list">
                 {plan.deferred.map((d) => (
                   <li key={d.taskId}>
                     <strong>{tasks.get(d.taskId)?.title ?? "Removed task"}</strong>
-                    <div className="muted small">{d.why}</div>
+                    <div className="muted small">{d.why} Still on today’s list.</div>
                   </li>
                 ))}
               </ul>
@@ -279,6 +293,7 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
           )}
         </>
       )}
+      {timers.sheets}
 
       <EarlierToday state={state} actions={actions} />
       <Meetings state={state} actions={actions} date={state.today} meetings={state.meetings} label="today" />
@@ -292,6 +307,7 @@ function TomorrowBody({ state, actions, busy }: { state: AppState; actions: AppA
   const tasks = useMemo(() => taskById(state.tasks), [state.tasks]);
   const complete = useCompletion(state, actions);
   const proposal = state.proposal?.date === t.date ? state.proposal : null;
+  const timers = useTimerControls(state, actions);
   return (
     <>
       <div className="today-head">
@@ -315,21 +331,23 @@ function TomorrowBody({ state, actions, busy }: { state: AppState; actions: AppA
         </div>
       )}
       {proposal && <ProposalCard state={state} proposal={proposal} actions={actions} onShowPlan={() => window.scrollTo({ top: 0, behavior: "smooth" })} />}
-      {t.plan ? (
-        <>
+      <DayTasks state={state} actions={actions} date={t.date} plan={t.plan} onToggle={complete} timers={timers} empty="Nothing assigned to tomorrow yet. Add a task below." />
+      {t.plan && (
+        <details className="card">
+          <summary className="section-summary">Timeline</summary>
           <Schedule plan={t.plan} state={state} tasks={tasks} actions={actions} onToggle={complete} isToday={false} />
           <DayBar plan={t.plan} />
-        </>
-      ) : (
-        !proposal && (
-          <div className="card empty-plan">
-            <h3 className="h3">No plan yet</h3>
-            <button className="btn primary" onClick={() => actions.focusComposer("Let's plan tomorrow. ")}>
-              Plan tomorrow
-            </button>
-          </div>
-        )
+        </details>
       )}
+      {!t.plan && !proposal && state.days[1]?.openIds.length > 0 && (
+        <div className="row gap wrap plan-offer">
+          <button className="btn" onClick={() => actions.focusComposer("Let's plan tomorrow. ")}>
+            Arrange tomorrow
+          </button>
+          <span className="muted small">Optional. Tasks stay on tomorrow either way.</span>
+        </div>
+      )}
+      {timers.sheets}
       <Meetings state={state} actions={actions} date={t.date} meetings={t.meetings} label="tomorrow" />
     </>
   );
@@ -510,44 +528,6 @@ function BlockEditor({ block, onSave, onCancel }: { block: PlanBlock; onSave: (p
   );
 }
 
-function Checklist({ plan, tasks, onToggle, actions }: { plan: Plan; tasks: Map<string, Task>; onToggle: (t: Task, d: boolean) => void; actions: AppActions }) {
-  const items = [
-    ...(plan.focusTaskId ? [{ taskId: plan.focusTaskId, why: plan.focusWhy, focus: true }] : []),
-    ...plan.supporting.map((s) => ({ ...s, focus: false })),
-  ];
-  const seen = new Set(items.map((i) => i.taskId));
-  for (const b of plan.blocks) {
-    if (b.taskId && !seen.has(b.taskId)) {
-      seen.add(b.taskId);
-      items.push({ taskId: b.taskId, why: "", focus: false });
-    }
-  }
-  return (
-    <ul className="checklist">
-      {items.map((i) => {
-        const t = tasks.get(i.taskId);
-        if (!t) return null;
-        return (
-          <li key={i.taskId} className={t.status === "done" ? "done" : ""}>
-            <label>
-              <input type="checkbox" className="check" checked={t.status === "done"} onChange={(e) => onToggle(t, e.target.checked)} />
-              <span>
-                <span className="slot-title">{t.title}</span>
-                {i.focus && <span className="tag">Main focus</span>}
-                {t.estimateMinutes ? <span className="muted small"> · {fmtDuration(t.estimateMinutes)}</span> : null}
-                {i.why && <span className="why block">{i.why}</span>}
-              </span>
-            </label>
-            <div className="checklist-extra">
-              <StepList task={t} actions={actions} compact />
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 function Meetings({
   state,
   actions,
@@ -577,7 +557,7 @@ function Meetings({
   return (
     <div className="card meetings">
       <div className="row between center-y">
-        <h3 className="h3">Meetings</h3>
+        <h3 className="h3">Commitments</h3>
         {!adding && (
           <button className="btn small ghost" onClick={() => { setAdding(true); setEditId(null); setForm({ title: "", start: "", end: "" }); }}>
             + Add

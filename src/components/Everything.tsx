@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AppState, Task, TaskStatus, TaskType } from "../../shared/types";
+import type { AppState, Task, TaskPriority, TaskStatus, TaskType } from "../../shared/types";
 import type { AppActions } from "../App";
 import { fmtDuration } from "../util";
 import { useCompletion, useMoveTask } from "./Today";
@@ -7,6 +7,7 @@ import { StepList } from "./TaskTools";
 import { ActionSheet, MoveSheet } from "./MoveSheet";
 import { ActualTime } from "./DayRhythm";
 import { AutoTextarea } from "./AutoTextarea";
+import { dueLabel } from "./TaskList";
 
 export function Everything({ state, actions }: { state: AppState; actions: AppActions }) {
   const [title, setTitle] = useState("");
@@ -96,6 +97,9 @@ function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppSta
     notes: task.notes,
     estimate: task.estimateMinutes ? String(task.estimateMinutes) : "",
     deadline: task.deadline ?? "",
+    deadlineTime: task.deadlineTime ?? "",
+    priority: task.priority,
+    optional: task.optional,
     project: task.project ?? "",
   });
   const inPlan = state.plan?.blocks.some((b) => b.taskId === task.id);
@@ -106,6 +110,9 @@ function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppSta
       notes: f.notes,
       estimateMinutes: f.estimate ? Math.max(1, Math.round(Number(f.estimate))) : null,
       deadline: f.deadline || null,
+      deadlineTime: f.deadline && f.deadlineTime ? f.deadlineTime : null,
+      priority: f.priority,
+      optional: f.optional,
       project: f.project.trim() || null,
     });
     if (ok) setEditing(false);
@@ -124,7 +131,11 @@ function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppSta
           <span className="task-meta">
             {task.project && <span className="tag subtle">{task.project}</span>}
             {task.estimateMinutes ? <span className="muted small">{fmtDuration(task.estimateMinutes)}</span> : null}
-            {task.deadline && <span className="tag warn">Due {task.deadline}</span>}
+            {task.priority === "high" && <span className="tag">High</span>}
+            {task.priority === "low" && <span className="muted small">Low priority</span>}
+            {task.optional && <span className="tag subtle">If time allows</span>}
+            {task.deadline && <span className="tag warn">{dueLabel(task, state.today)}</span>}
+            {task.plannedDate && task.status !== "done" && <span className="muted small">{task.plannedDate === state.today ? "Today" : task.plannedDate === state.tomorrow.date ? "Tomorrow" : task.plannedDate}</span>}
             {inPlan && <span className="tag">Today</span>}
             {task.status === "blocked" && <span className="tag warn">Blocked</span>}
             {task.status === "waiting" && <span className="tag subtle">Waiting</span>}
@@ -235,10 +246,26 @@ function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppSta
               <input type="date" value={f.deadline} onChange={(e) => setF({ ...f, deadline: e.target.value })} />
             </label>
             <label className="field">
+              <span>Deadline time</span>
+              <input type="time" value={f.deadlineTime} disabled={!f.deadline} onChange={(e) => setF({ ...f, deadlineTime: e.target.value })} />
+            </label>
+            <label className="field">
+              <span>Priority</span>
+              <select value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value as TaskPriority })}>
+                <option value="high">High</option>
+                <option value="normal">Normal</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+            <label className="field">
               <span>Project</span>
               <input value={f.project} onChange={(e) => setF({ ...f, project: e.target.value })} />
             </label>
           </div>
+          <label className="check-line">
+            <input type="checkbox" checked={f.optional} onChange={(e) => setF({ ...f, optional: e.target.checked })} />
+            <span>Only if time allows</span>
+          </label>
           <label className="field">
             <span>Notes</span>
             <textarea rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />

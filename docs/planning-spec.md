@@ -139,3 +139,38 @@ Finishing a task does **not** mark earlier planned blocks done. They stay "Not r
 
 ## Scope
 Stage C: command layer, task-first Today and Tomorrow, priority and deadlines, flexible scheduling, timers, history accuracy, replanning. Stage D: reminders and in-app reminder behaviour. **Not in scope:** device notifications, recurring items, web push.
+
+## Roadmap
+
+| Stage | Content | Status |
+|---|---|---|
+| A, B | Architecture, history and data-safety foundation | Done |
+| C | Task-first planning, priority/deadlines, timers, forgotten-time handling, shared chat/UI command layer | Built; awaiting your sign-off |
+| D | Reminders (in-app only; no claims about device notifications until verified) | Not started — needs approval |
+| E | Long-term projects and goals | Not started — needs approval |
+
+## Stage E — long-term projects and goals (planned, not built)
+
+**Idea:** a goal is a container for tasks, not a new kind of task. Everything below reuses the Stage C task, session and block system.
+
+```
+Project / Goal → Milestones → Tasks → Work sessions
+```
+
+- **Project/Goal:** title, optional target date, optional notes. Stored persistently. Lives in its own table; tasks point to it with `project_id`.
+- **Milestone:** a dated or undated checkpoint inside a project, with its own open/done state. Tasks may point to a milestone.
+- **Tasks:** exactly the same tasks as today (assigned day, priority, deadline, timer, sessions). A project task is not a different thing and appears on Today/Tomorrow/Week like any other.
+- **Nikki breaks a goal down** into milestones and a first set of tasks, as a **proposal the user approves** (same preview-and-Confirm pattern as plans). Significant milestone or deadline changes are proposals too.
+- **No flooding:** a project never pushes all its tasks onto the daily list. Only the next few actions are *assigned to a day* (a small, capped number, default 3, set by the user); the rest stay in the project, unassigned. Nikki suggests the next actions; the user (or an approved suggestion) assigns them.
+- **Progress** comes only from real states: milestones done / total, tasks done / total, recorded time. No AI-estimated percentages.
+- **UI:** a simple Projects list (or a "Project" filter in Everything) and one project page: milestones, next actions, remaining tasks, recorded time. No dashboards, no dependency graphs, no Gantt.
+- **Chat/UI parity:** project actions go through the same command layer (`server/commands.ts`) with receipts and Undo.
+
+### Stage C provisions that keep this compatible (already in place)
+- `tasks.project` already exists (a free-text label); Stage E adds `project_id` and `milestone_id` as nullable additive columns, so no existing task changes.
+- Tasks are independent of schedule: an assigned day is just `planned_date`, so "assign the next three project tasks to a day" needs nothing new.
+- The command layer (`ActionRequest`, receipts, Undo records) is extensible by adding action types; a project-breakdown proposal reuses the existing proposal table and Confirm flow.
+- Work sessions are per task, so project time is a sum over its tasks.
+- Migrations are additive with a pre-migration snapshot (`SCHEMA_VERSION` + `PRAGMA user_version`), so adding Stage E tables is a normal, reversible step.
+
+Nothing in Stage E is implemented. It needs separate approval.

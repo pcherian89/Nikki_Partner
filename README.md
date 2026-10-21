@@ -269,12 +269,27 @@ The workspace is chosen with the `X-Workspace: personal|demo` header. The browse
 - export and delete
 - demo/personal data separation
 
+**Stage C (task-first planning), verified in the build environment** (`server/tests/stagec.test.ts` + scripted Chromium at 1280px and 390px):
+
+- tasks with an assigned day, priority, optional flag and deadline (with time), none of which create a scheduled block
+- start any task without a plan; pause, resume, switch (the server refuses a silent second timer) and finish
+- time added after the fact (minutes or from–to) with duplicate/overlap checks; unknown time is never invented
+- a timer left running or started on another device is shown with its state and never counted until confirmed or corrected
+- Nikki's chat actions run through the same functions as the buttons, with receipts and Undo; failed actions are fed back to the next turn
+- finishing a task no longer marks earlier planned blocks done
+
+See `docs/planning-spec.md` for the approved behaviour, the Stage E (projects/goals) roadmap and how Stage C stays compatible with it.
+
 **Simulated:**
 
 - **Demo mode** is rule-based. It understands simple phrasing ("5 hours", "2–4 meeting", "I need to A, B and C") and follows a script. It is clearly labelled and is not AI.
 - In the automated tests, live-mode behaviour is exercised with a **fake** provider.
 
 **Not yet tested:**
+
+- **Stage C with a real model.** The new `actions` field (start/pause/finish/report time/priority/deadline/move day) is exercised only with a fake provider; real Claude may phrase or choose actions differently.
+- **Stage C on Railway.** Not deployed or checked from the build environment; a push is not proof that it is running.
+- Known gaps against the spec: blocks the user pins by stating a time are not yet marked "pinned"; the proposal card still says "Deferred" rather than separate "Not scheduled / At risk" sections; "Keep going" past a planned block changes nothing and does not preview collisions with later blocks; the demo planner still guesses estimates for items it captures.
 
 - **Real calls to Claude.** No API key was available in the build environment, so the quality of Nikki's live replies and the exact structured-output behaviour with a real key still need a first run on your machine.
 - Real browsers other than Chromium (Safari, Firefox, iOS).

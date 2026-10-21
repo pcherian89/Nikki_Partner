@@ -9,7 +9,7 @@ export const fromMin = (n: number) => {
   return `${String(Math.floor(c / 60)).padStart(2, "0")}:${String(c % 60).padStart(2, "0")}`;
 };
 
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const timeFmt = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 export function fmtTime(t: string) {
   if (!/^\d{2}:\d{2}$/.test(t)) return t;
   const d = new Date(2000, 0, 1, Number(t.slice(0, 2)), Number(t.slice(3)));

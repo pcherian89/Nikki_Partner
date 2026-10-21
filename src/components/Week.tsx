@@ -26,8 +26,11 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
   const meetingsOn = (d: string): Meeting[] =>
     d === state.today ? state.meetings : d === state.tomorrow.date ? state.tomorrow.meetings : state.upcoming.filter((m) => m.date === d);
   const open = state.tasks.filter((t) => t.type === "action" && t.status !== "done");
-  const plannedOn = (d: string) =>
-    open.filter((t) => t.plannedDate === d || (d === state.today && t.plannedDate != null && t.plannedDate < state.today));
+  const plannedOn = (d: string) => {
+    const ids = new Set(state.days.find((x) => x.date === d)?.openIds ?? []);
+    const earlier = d === state.today ? open.filter((t) => t.plannedDate != null && t.plannedDate < state.today && !ids.has(t.id)) : [];
+    return [...open.filter((t) => ids.has(t.id)), ...earlier];
+  };
   const dueOn = (d: string) => state.tasks.filter((t) => t.status !== "done" && t.deadline === d);
   const overdueDeadlines = state.tasks.filter((t) => t.status !== "done" && t.deadline && t.deadline < state.today);
   const inTodayPlan = new Set(state.plan?.blocks.map((b) => b.taskId).filter(Boolean));
@@ -80,14 +83,19 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
           const due = [...dueOn(d), ...(i === 0 ? overdueDeadlines : [])];
           const dayPlan = d === state.today ? state.plan : d === state.tomorrow.date ? state.tomorrow.plan : null;
           const label = i === 0 ? "Today" : i === 1 ? "Tomorrow" : weekdayShort(d);
-          const minutes = planned.reduce((a, t) => a + (t.estimateMinutes ?? 0), 0);
+          const sum = state.days.find((x) => x.date === d);
           const empty = !meetings.length && !planned.length && !due.length && !dayPlan;
           return (
             <section key={d} className={`week-day ${i === 0 ? "is-today" : ""}`}>
               <div className="week-date">
                 <strong>{label}</strong>
                 <span className="muted small">{dayNum(d)}</span>
-                {minutes > 0 && <span className="muted small">{fmtDuration(minutes)} planned</span>}
+                {sum && sum.openIds.length > 0 && (
+                  <span className="muted small">
+                    {sum.remainingMinutes > 0 ? `${fmtDuration(sum.remainingMinutes)} estimated` : `${sum.openIds.length} task${sum.openIds.length === 1 ? "" : "s"}`}
+                    {sum.unknownEstimates && sum.remainingMinutes > 0 ? ` · ${sum.unknownEstimates} no estimate` : ""}
+                  </span>
+                )}
               </div>
               <div className="week-items">
                 {dayPlan && (
@@ -124,6 +132,7 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
                     <input type="checkbox" className="check small" checked={t.status === "done"} onChange={(e) => complete(t, e.target.checked)} aria-label={`Mark ${t.title} done`} />
                     <span>
                       {t.title}
+                      {t.priority === "high" && <span className="tag">High</span>}
                       {t.plannedDate && t.plannedDate < state.today && <span className="tag subtle">from {fmtDate(t.plannedDate, false)}</span>}
                       {t.estimateMinutes ? <span className="muted small"> · {fmtDuration(t.estimateMinutes)}</span> : null}
                     </span>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AppState, ChatMessage } from "../../shared/types";
+import type { AppState, ChatMessage, Receipt } from "../../shared/types";
 import type { AppActions, PendingSend } from "../App";
 import { Avatar } from "./Avatar";
 import { MicButton } from "./Voice";
@@ -86,7 +86,7 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
         )}
         {state.messages.map((m) => (
           <div key={m.id}>
-            <Message m={m} state={state} />
+            <Message m={m} state={state} actions={actions} />
             {proposal && m.meta.proposalId === proposal.id && !proposal.plan && proposal.status === "pending" && (
               // Small changes (take off today, move, delete…) can be confirmed right here.
               <div className="inline-proposal">
@@ -200,7 +200,39 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
   );
 }
 
-function Message({ m, state }: { m: ChatMessage; state: AppState }) {
+/** What the app actually did — the record, whatever the reply says. */
+function Receipts({ receipts, actions }: { receipts: Receipt[]; actions: AppActions }) {
+  const [undone, setUndone] = useState<Record<string, boolean>>({});
+  return (
+    <ul className="receipts">
+      {receipts.map((r, i) => (
+        <li key={i} className={r.ok ? "ok" : "fail"}>
+          <span className="receipt-mark" aria-hidden>
+            {r.ok ? "✓" : "✕"}
+          </span>
+          <span className="receipt-text">{undone[r.undoId ?? ""] ? `Undone: ${r.text}` : r.text}</span>
+          {r.ok && r.undoId && !undone[r.undoId] && (
+            <button
+              className="link small"
+              onClick={async () => {
+                if (await actions.mutate("POST", `/api/undo/${r.undoId}`)) setUndone({ ...undone, [r.undoId!]: true });
+              }}
+            >
+              Undo
+            </button>
+          )}
+          {!r.ok && r.retry && (
+            <button className="link small" onClick={() => actions.mutate("POST", "/api/actions", r.retry)}>
+              {r.retryLabel ?? "Do it anyway"}
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Message({ m, state, actions }: { m: ChatMessage; state: AppState; actions: AppActions }) {
   if (m.meta.system) {
     return <div className="system-note">{m.text}</div>;
   }
@@ -228,11 +260,12 @@ function Message({ m, state }: { m: ChatMessage; state: AppState }) {
             ))}
           </ol>
         )}
-        {(captured.length > 0 || meetings.length > 0) && (
+        {m.meta.receipts?.length ? <Receipts receipts={m.meta.receipts} actions={actions} /> : null}
+        {(captured.length > 0 && !m.meta.receipts?.length) || meetings.length > 0 ? (
           <div className="captured">
             <span className="muted small">Added:</span>
             <div className="chips">
-              {captured.map((t) => (
+              {!m.meta.receipts?.length && captured.map((t) => (
                 <span key={t!.id} className={`chip static ${t!.type}`}>
                   {t!.title}
                 </span>
@@ -244,7 +277,7 @@ function Message({ m, state }: { m: ChatMessage; state: AppState }) {
               ))}
             </div>
           </div>
-        )}
+        ) : null}
         {m.meta.notes?.length ? (
           <details className="notes">
             <summary>Notes ({m.meta.notes.length})</summary>

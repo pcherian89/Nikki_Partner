@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AutoTextarea } from "./AutoTextarea";
 import type { AppState, Task, TaskDraft } from "../../shared/types";
-import { api, ApiError } from "../api";
+import { api, ApiError, serverNowMs } from "../api";
 import type { AppActions } from "../App";
 import { fmtDuration } from "../util";
 
@@ -13,7 +13,7 @@ export function useTimerMinutes(task: Task) {
     const id = window.setInterval(() => tick((n) => n + 1), 30_000);
     return () => window.clearInterval(id);
   }, [task.timerStartedAt]);
-  const running = task.timerStartedAt ? Math.max(0, Math.round((Date.now() - new Date(task.timerStartedAt).getTime()) / 60000)) : 0;
+  const running = task.timerStartedAt ? Math.max(0, Math.round((serverNowMs() - new Date(task.timerStartedAt).getTime()) / 60000)) : 0;
   return task.spentMinutes + running;
 }
 

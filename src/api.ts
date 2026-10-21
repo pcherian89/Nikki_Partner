@@ -6,12 +6,31 @@ export class ApiError extends Error {
     public status: number,
     public code?: string,
     public details?: string[],
+    public data?: Record<string, any>,
   ) {
     super(message);
   }
 }
 
 let workspace: Workspace = "demo";
+
+/** A per-device id: lets the server tell "started on another device" from a normal refresh. */
+const clientId = (() => {
+  try {
+    let id = localStorage.getItem("nikki.client");
+    if (!id) {
+      id = (crypto.randomUUID?.() ?? `${Date.now()}${Math.random().toString(36).slice(2)}`).replace(/-/g, "");
+      localStorage.setItem("nikki.client", id);
+    }
+    return id;
+  } catch {
+    return `s${Math.random().toString(36).slice(2)}`;
+  }
+})();
+
+/** Server clock minus this device's clock, so elapsed time is the server's, not a wrong phone clock's. */
+let serverOffsetMs = 0;
+export const serverNowMs = () => Date.now() + serverOffsetMs;
 export const setApiWorkspace = (ws: Workspace) => {
   workspace = ws;
 };
@@ -33,6 +52,7 @@ export async function api<T = { state: AppState }>(method: string, url: string, 
         "content-type": "application/json",
         "x-workspace": workspace,
         "x-timezone": browserTimezone(),
+        "x-client-id": clientId,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: "same-origin",
@@ -47,8 +67,10 @@ export async function api<T = { state: AppState }>(method: string, url: string, 
     /* non-JSON */
   }
   if (!res.ok) {
-    throw new ApiError(json?.error ?? `Request failed (${res.status}).`, res.status, json?.code, json?.details);
+    throw new ApiError(json?.error ?? `Request failed (${res.status}).`, res.status, json?.code, json?.details, json?.data);
   }
+  const sn = json?.state?.serverNow;
+  if (sn) serverOffsetMs = new Date(sn).getTime() - Date.now();
   return json as T;
 }
 

@@ -2737,3 +2737,161 @@ details summary {
     flex: 1;
   }
 }
+
+/* ---------- Stage C: task-first Today ---------- */
+.day-tasks .task-list {
+  margin-top: 6px;
+}
+.day-task .task-main {
+  align-items: center;
+}
+.day-task .task-actions {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+.day-task.is-running {
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  padding-left: 8px;
+  padding-right: 8px;
+}
+.btn.primary-soft {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.btn.danger-text,
+.danger-text {
+  color: var(--danger);
+}
+.workload {
+  margin: 2px 0 6px;
+}
+.add-task {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.add-task input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 9px 12px;
+  font: inherit;
+}
+.add-task input:focus {
+  outline: none;
+  border-style: solid;
+  border-color: var(--accent-line);
+}
+.focus-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-color: var(--accent-line);
+  background: linear-gradient(180deg, rgba(163, 230, 53, 0.06), transparent 70%), var(--surface);
+}
+.focus-card.warn {
+  border-color: rgba(242, 198, 109, 0.45);
+  background: linear-gradient(180deg, rgba(242, 198, 109, 0.07), transparent 70%), var(--surface);
+}
+.focus-card .eyebrow {
+  color: var(--accent);
+}
+.focus-card.warn .eyebrow {
+  color: var(--warn);
+}
+.banner {
+  display: flex;
+  gap: 10px 14px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.carry {
+  margin: -4px 0 12px;
+}
+.carry-line {
+  background: none;
+  border: 0;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 2px;
+  cursor: pointer;
+}
+.carry-line:hover {
+  color: var(--text);
+}
+.plan-offer {
+  align-items: center;
+  margin-bottom: 12px;
+}
+.form-sheet {
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.sheet-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 6px 6px;
+}
+.sheet-note {
+  margin: 0;
+  padding: 0 6px;
+}
+.receipts {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.receipts li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+.receipts .receipt-mark {
+  font-weight: 700;
+}
+.receipts li.ok .receipt-mark {
+  color: var(--accent);
+}
+.receipts li.fail .receipt-mark {
+  color: var(--danger);
+}
+.receipts li.fail .receipt-text {
+  color: var(--text-2);
+}
+.check-line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+}
+@media (max-width: 520px) {
+  .day-task .task-main {
+    flex-wrap: wrap;
+  }
+  .day-task .task-text {
+    flex-basis: calc(100% - 44px);
+  }
+  .day-task .task-actions {
+    margin-left: 34px;
+  }
+}
