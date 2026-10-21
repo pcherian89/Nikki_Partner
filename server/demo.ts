@@ -151,6 +151,7 @@ const empty = (): ModelResponse => ({
   quick_replies: [],
   captured_items: [],
   task_updates: [],
+  actions: [],
   meetings: [],
   context_updates: [],
   availability: null,
@@ -217,7 +218,10 @@ export function demoRespond(input: DemoInput): DemoResult {
       notes: null,
       estimate_minutes: i.kind === "action" ? estimateFor(i.title) : null,
       deadline: null,
+      deadline_time: null,
       planned_date: null,
+      priority: "normal" as const,
+      optional: false,
       project: null,
       duplicate_of: null,
     }));

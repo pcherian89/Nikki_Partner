@@ -646,8 +646,11 @@ test("focus timer: one at a time; finishing records time", async () => {
   const a = (await api("POST", "/api/tasks", { title: "Task A", estimateMinutes: 30 })).json.task;
   const b = (await api("POST", "/api/tasks", { title: "Task B" })).json.task;
   await api("POST", `/api/tasks/${a.id}/timer`, { action: "start" });
-  const s2 = (await api("POST", `/api/tasks/${b.id}/timer`, { action: "start" })).json.state;
-  assert.equal(s2.tasks.find((t: any) => t.id === a.id).timerStartedAt, null, "starting B pauses A");
+  const refused = await api("POST", `/api/tasks/${b.id}/timer`, { action: "start" });
+  assert.equal(refused.status, 409, "a silent overlap is refused");
+  assert.equal(refused.json.code, "timer_running");
+  const s2 = (await api("POST", `/api/tasks/${b.id}/timer`, { action: "start", switch: "pause" })).json.state;
+  assert.equal(s2.tasks.find((t: any) => t.id === a.id).timerStartedAt, null, "switching pauses A");
   assert.ok(s2.tasks.find((t: any) => t.id === b.id).timerStartedAt);
   // simulate 40 minutes of focus on B
   getDb("demo").prepare("UPDATE tasks SET timer_started_at = ? WHERE id = ?").run(new Date(new Date(process.env.NIKKI_FAKE_NOW!).getTime() - 40 * 60000).toISOString(), b.id);
@@ -668,6 +671,7 @@ function liveReply(over: Record<string, unknown>) {
     task_updates: [],
     meetings: [],
     context_updates: [],
+    actions: [],
     plan: null,
     ...over,
   });
@@ -961,7 +965,7 @@ test("plans can be confirmed around overlapping calendar events", async () => {
 
 test("Nikki calendar feed: private link serves confirmed plans as valid iCalendar", async () => {
   const { default: IcalExpander } = await import("ical-expander");
-  const { localToUtc } = await import("../icsExport.js");
+  const { localToUtc } = await import("../time.js");
   // DST-aware local -> UTC
   assert.equal(localToUtc("2026-10-05", "10:00", "Europe/London").toISOString(), "2026-10-05T09:00:00.000Z");
   assert.equal(localToUtc("2026-12-05", "10:00", "Europe/London").toISOString(), "2026-12-05T10:00:00.000Z");

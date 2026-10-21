@@ -38,13 +38,13 @@ import { getProvider } from "./provider/index.js";
 import { ProviderError, ProviderMessage } from "./provider/types.js";
 import { ModelResponse, RESPONSE_JSON_SCHEMA } from "./schema.js";
 import { addDays, fromMinutes, weekdayOf, isValidDate, isValidTime, localNow, toMinutes } from "./time.js";
-import { findDuplicate, validateMeeting, validatePlanDraft } from "./validate.js";
+import { findDuplicate, freeMinutes, validateMeeting, validatePlanDraft } from "./validate.js";
+import { UserFacingError } from "./errors.js";
+import { ActionRequest, recordCreated, runActions } from "./commands.js";
+import { buildFacts, computeTaskMeta, deadlinesThisWeek, suggestNext } from "./derived.js";
+import type { Viewer } from "./timer.js";
 
-export class UserFacingError extends Error {
-  constructor(message: string, public status = 400, public code = "bad_request", public details?: string[]) {
-    super(message);
-  }
-}
+export { UserFacingError } from "./errors.js";
 
 export interface TurnInput {
   ws: Workspace;
@@ -53,6 +53,7 @@ export interface TurnInput {
   kind: "chat" | "replan" | "review" | "wrapup";
   timezone: string;
   remainingUntil?: string | null;
+  viewer?: Viewer;
 }
 
 interface Resolved {
@@ -64,9 +65,34 @@ interface Resolved {
   contextSuggestions: ContextSuggestion[];
   notes: string[];
   refMap: Map<string, string>;
+  actions: ActionRequest[];
 }
 
 const MAX_CAPTURES = 25;
+
+/** The app's own numbers, so Nikki reports them instead of working them out. */
+function modelFacts(db: DB, tz: string, profile: ReturnType<typeof getProfile>, tasks: Task[]) {
+  const f = buildFacts(db, tz, profile);
+  const meta = computeTaskMeta(tasks, f, new Map());
+  const next = suggestNext(tasks, f, meta);
+  const title = (id: string) => tasks.find((t) => t.id === id)?.title;
+  const open = tasks.filter((t) => t.type === "action" && t.status !== "done");
+  const atRisk = open.filter((t) => ["at_risk", "overdue"].includes(meta[t.id]?.deadlineStatus ?? "")).map((t) => ({ task_id: t.id, status: meta[t.id].deadlineStatus, short_by_minutes: meta[t.id].shortByMinutes ?? null }));
+  const running = tasks.find((t) => t.timerStartedAt);
+  return {
+    running_timer: running ? { task_id: running.id, title: running.title } : null,
+    urgent_first: next ? { task_id: next.taskId, title: title(next.taskId), reason: next.reason } : null,
+    at_risk_or_overdue: atRisk,
+    deadlines_this_week: deadlinesThisWeek(tasks, f, meta),
+    unfinished_today: open.filter((t) => t.plannedDate === f.today).map((t) => t.id),
+    free_minutes_today_after_meetings: (() => {
+      const w = f.windowFor(f.today);
+      const from = Math.max(f.nowMin, toMinutes(w.start));
+      const end = toMinutes(w.end);
+      return end > from ? freeMinutes({ start: fromMinutes(from), end: fromMinutes(end) }, f.meetingsFor(f.today) as Meeting[]) : 0;
+    })(),
+  };
+}
 
 /**
  * Turns a (live or demo) model response into concrete, validated changes
@@ -117,6 +143,9 @@ export function resolveResponse(
       status: "open",
       estimateMinutes: c.estimate_minutes,
       deadline,
+      deadlineTime: deadline && c.deadline_time && isValidTime(c.deadline_time) ? c.deadline_time : null,
+      priority: c.priority,
+      optional: c.optional,
       plannedDate: c.planned_date && isValidDate(c.planned_date) && c.planned_date >= ctx.date ? c.planned_date : null,
       project: c.project,
       createdAt: ts,
@@ -227,7 +256,8 @@ export function resolveResponse(
       if (t?.status === "done") planErrors.push(`"${t.title}" is already completed and shouldn't be scheduled.`);
     }
   }
-  return { newTasks, newMeetings, draft, planErrors, taskChanges, contextSuggestions, notes, refMap };
+  const actions = resp.actions.map((a) => ({ ...a, task_id: refMap.get(a.task_id) ?? a.task_id }));
+  return { newTasks, newMeetings, draft, planErrors, taskChanges, contextSuggestions, notes, refMap, actions };
 }
 
 function parseModelJson(text: string): { ok: true; value: ModelResponse } | { ok: false; errors: string[] } {
@@ -338,6 +368,7 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
         },
         upcoming: listMeetingsBetween(db, addDays(now.date, 2), addDays(now.date, 30)),
         declinedSuggestions: declinedForModel(db),
+        facts: modelFacts(db, input.timezone, profile, tasks),
       });
       const messages: ProviderMessage[] = boundedHistory(history);
       const last = messages[messages.length - 1];
@@ -380,7 +411,7 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
       }
     }
 
-    return persistTurn(db, { resp, resolved, demoMeta, pending, baseVersion, date: now.date, kind: input.kind });
+    return persistTurn(db, { resp, resolved, demoMeta, pending, baseVersion, date: now.date, kind: input.kind, tz: input.timezone, viewer: input.viewer ?? { clientId: null, prevSeenAt: null } });
   } catch (err) {
     // Remove the user's message so a retry doesn't duplicate it; the client keeps the text.
     deleteMessage(db, userMsg.id);
@@ -400,12 +431,24 @@ function persistTurn(
     baseVersion: number;
     date: string;
     kind: TurnInput["kind"];
+    tz: string;
+    viewer: Viewer;
   },
 ) {
   return db.transaction(() => {
     const { resolved, resp } = a;
     for (const t of resolved.newTasks) createTask(db, t);
     for (const m of resolved.newMeetings) createMeeting(db, m);
+    // The app runs the requested actions itself; the receipts, not the model's wording, are the record.
+    const receipts = runActions(db, resolved.actions, { tz: a.tz, viewer: a.viewer });
+    const createdUndo = recordCreated(db, resolved.newTasks.map((t) => t.id));
+    if (createdUndo) {
+      receipts.unshift({
+        ok: true,
+        text: resolved.newTasks.length === 1 ? `Added “${resolved.newTasks[0].title}”.` : `Added ${resolved.newTasks.length} tasks.`,
+        undoId: createdUndo,
+      });
+    }
     let proposal: Proposal | null = null;
     let draft = resolved.draft;
     if (
@@ -449,6 +492,7 @@ function persistTurn(
         capturedTaskIds: resolved.newTasks.map((t) => t.id),
         addedMeetingIds: resolved.newMeetings.map((m) => m.id),
         notes: resolved.notes.length ? resolved.notes : undefined,
+        receipts: receipts.length ? receipts : undefined,
       },
     });
     return { message, proposal };

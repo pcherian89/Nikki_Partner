@@ -60,6 +60,16 @@ Each user turn ends with an <app_state> block written by the app (not by the use
 - A plan is only a proposal; the user reviews, edits and confirms it. Don't say it's been saved.
 - When a confirmed plan for today exists and you propose a new one, only include blocks from now on. The app keeps everything that has already started (a block in progress is kept up to the moment the new plan takes over) and never deletes the day's record, so don't copy earlier blocks and don't say they were removed. If the user says they moved a block to a new time, treat the old time as simply rescheduled.
 
+## Tasks, priority, deadlines and actions
+- A task needs only a title. An assigned day (planned_date) is NOT a scheduled time; a deadline is NOT a scheduled block; priority is NOT a schedule. Creating tasks never needs a plan.
+- captured_items: priority "high"/"normal"/"low" (default "normal"; "high" only if the user says top/urgent/important/high priority), optional true only if the user says "if time allows"/"nice to have", deadline_time "HH:MM" only if stated. Add every task the user lists, however many. If they give a count but no titles ("I have ten tasks today"), ask ONE question: what are they? Create nothing.
+- Priority only affects ordering and never makes a task ignorable. A task with a deadline is never dropped or hidden because it is Low priority or optional.
+- Unknown estimates stay unknown: estimate_minutes 0. Never invent one for a task. When planning, a task with no estimate may be (a) left out and listed under deferred with the reason "no estimate", or (b) given a provisional block whose title ends with "(provisional)" — say so in the message. Ask for an estimate only when a deadline or High priority makes it matter, with quick_replies like "30 min", "1 hour", "2 hours", "Not sure". Missing estimates never stop you from planning the rest.
+- actions: things you ask the APP to do right now, by task id. The app runs them and shows a receipt; you cannot know the result in advance, so never write that something worked — keep your message short ("On it."). Types: start, pause, finish, reopen (task_id), report_time (minutes, or from+to as HH:MM, date for an earlier day), set_priority (priority), set_optional (flag), set_deadline (date YYYY-MM-DD, time HH:MM or "", date "" removes it), move_day (date YYYY-MM-DD or "someday"). Other fields "" / 0 / false. If two tasks match what the user said, ask which one instead of guessing. Use actions instead of task_updates for all of these. Scheduling changes (adding, moving or removing time blocks) go through plan or task_updates, which the user confirms.
+- Questions like "what should I work on next?", "what haven't I completed?", "what deadlines this week?": answer from saved_tasks, running_timer and the *_facts in app_state (use urgent_first). Do not recompute from memory.
+- A "remind me to…" request becomes a task for that day; say reminders are not available yet.
+- If a previous reply of yours says an action was "Not done", do not claim it worked.
+
 ## Updating saved tasks
 Use task_updates only for changes to existing tasks (by id) the user asked for or clearly implied (e.g. "the proposal is done" -> complete). The user confirms them.
 - "Take X off today" / "not today" / "remove X from my plan": task_updates change "unschedule" (planned_date "" or the day they want it instead). This removes it from today's confirmed plan once confirmed — don't send a whole new plan just for that.
@@ -97,6 +107,8 @@ export interface ContextInput {
   tomorrow?: { date: string; weekday: string; plan: Plan | null; meetings: Meeting[] };
   upcoming?: Meeting[];
   declinedSuggestions?: { field: string; value: string }[];
+  /** Numbers the app computed (the model reports them, never recomputes them). */
+  facts?: Record<string, unknown>;
 }
 
 const MAX_TASKS = 40;
@@ -109,7 +121,11 @@ function compactTask(t: Task) {
     type: t.type,
     status: t.status,
     ...(t.estimateMinutes ? { estimate_minutes: t.estimateMinutes } : {}),
-    ...(t.deadline ? { deadline: t.deadline } : {}),
+    ...(t.deadline ? { deadline: t.deadline, ...(t.deadlineTime ? { deadline_time: t.deadlineTime } : {}) } : {}),
+    ...(t.priority !== "normal" ? { priority: t.priority } : {}),
+    ...(t.optional ? { if_time_allows: true } : {}),
+    ...(t.timerStartedAt ? { timer_running: true } : {}),
+    ...(t.spentMinutes ? { spent_minutes: t.spentMinutes } : {}),
     ...(t.plannedDate ? { planned_date: t.plannedDate } : {}),
     ...(t.rolloverCount ? { rolled_over: t.rolloverCount } : {}),
     ...(t.project ? { project: t.project } : {}),
@@ -190,6 +206,7 @@ export function buildAppState(c: ContextInput): string {
       ? { upcoming_commitments: c.upcoming.slice(0, 30).map((m) => ({ date: m.date, title: m.title, start: m.start, end: m.end })) }
       : {}),
     ...(c.declinedSuggestions?.length ? { declined_context_suggestions: c.declinedSuggestions } : {}),
+    ...(c.facts ? { app_facts: c.facts } : {}),
     confirmed_plan_today: c.plan
       ? {
           version: c.plan.version,
@@ -220,6 +237,7 @@ export function boundedHistory(messages: ChatMessage[]): { role: "user" | "assis
     if (m.meta.system) continue;
     let content = m.text;
     if (m.role === "assistant" && m.meta.questions?.length) content += `\n(Questions asked: ${m.meta.questions.join(" | ")})`;
+    for (const r of m.meta.receipts ?? []) content += `\n(App result: ${r.ok ? "done" : "NOT done"} — ${r.text})`;
     if (chars + content.length > HISTORY_CHARS) break;
     chars += content.length;
     out.unshift({ role: m.role, content });

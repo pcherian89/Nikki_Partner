@@ -28,13 +28,17 @@ import {
   updateTask,
   wipe,
   TABLES,
-  setTimer,
   replaceSteps,
   setStepDone,
   deleteDraft,
   getSetting,
   setSetting,
+  clockIso,
+  listSessionsForTask,
+  deleteSession,
+  updateSession,
 } from "./db.js";
+import { confirmStillWorking, finishTask, reportSession, resolveSession, startTimer, stopTimer, type Viewer } from "./timer.js";
 import { breakDown, helpMeStart } from "./helpers.js";
 import { importWorkspace } from "./importer.js";
 import { addFeed, removeFeed, syncFeed, syncStale } from "./calendar.js";
@@ -57,6 +61,7 @@ import {
   recordOutcomes,
 } from "./planOps.js";
 import { dayHistory } from "./history.js";
+import { ActionRequest, runAction, setTaskFields, undoAction } from "./commands.js";
 import { addDays, isValidDate, isValidTime, isValidTimeZone, localNow } from "./time.js";
 import { validateMeeting, validatePlanDraft } from "./validate.js";
 
@@ -150,6 +155,8 @@ interface Ctx {
   ws: Workspace;
   db: DB;
   tz: string;
+  /** Which device is asking, and when it last asked: used to spot timers left running or started elsewhere. */
+  viewer: Viewer;
 }
 
 function ctx(req: Request): Ctx {
@@ -158,10 +165,16 @@ function ctx(req: Request): Ctx {
   const tz = resolveTimezone(getProfile(db), req.header("x-timezone"));
   // Remembered so background calendar sync uses the user's local time.
   if (getSetting(db, "last_timezone") !== tz) setSetting(db, "last_timezone", tz);
-  return { ws, db, tz };
+  const clientId = (req.header("x-client-id") ?? "").slice(0, 64) || null;
+  let prevSeenAt: string | null = null;
+  if (clientId) {
+    prevSeenAt = getSetting(db, `client_seen:${clientId}`);
+    setSetting(db, `client_seen:${clientId}`, clockIso());
+  }
+  return { ws, db, tz, viewer: { clientId, prevSeenAt } };
 }
 
-const state = (req: Request, c: Ctx) => buildState(c.db, c.ws, req.header("x-timezone"));
+const state = (req: Request, c: Ctx) => buildState(c.db, c.ws, req.header("x-timezone"), c.viewer);
 
 type Handler = (req: Request, res: Response) => unknown | Promise<unknown>;
 const h = (fn: Handler) => (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res)).catch(next);
@@ -266,7 +279,7 @@ app.post(
     const c = ctx(req);
     const body = parse(MessageBody, req.body);
     await idempotentTurn(req, res, c, body.clientRequestId, () =>
-      runTurn({ ws: c.ws, db: c.db, text: body.text, kind: body.kind, timezone: c.tz }),
+      runTurn({ ws: c.ws, db: c.db, text: body.text, kind: body.kind, timezone: c.tz, viewer: c.viewer }),
     );
   }),
 );
@@ -344,6 +357,9 @@ const TaskFields = z.object({
   status: z.enum(["open", "waiting", "blocked", "done"]),
   estimateMinutes: z.number().int().positive().max(24 * 60).nullable(),
   deadline: z.string().refine(isValidDate, "Use YYYY-MM-DD").nullable(),
+  deadlineTime: z.string().refine(isValidTime, "Use HH:MM").nullable(),
+  priority: z.enum(["high", "normal", "low"]),
+  optional: z.boolean(),
   plannedDate: z.string().refine(isValidDate, "Use YYYY-MM-DD").nullable(),
   project: z.string().max(200).nullable(),
   actualMinutes: z.number().int().positive().max(24 * 60).nullable(),
@@ -364,22 +380,7 @@ app.patch(
   h((req, res) => {
     const c = ctx(req);
     const body = parse(TaskFields.partial(), req.body);
-    const id = String(req.params.id);
-    const task = c.db.transaction(() => {
-      const t = updateTask(c.db, id, body);
-      // Planning it for another day takes it off today's / tomorrow's plan.
-      if (t && body.plannedDate !== undefined) {
-        const today = localNow(c.tz).date;
-        const nowMin = localNow(c.tz).minutes;
-        for (const d of [today, addDays(today, 1)]) {
-          if (d === body.plannedDate) continue;
-          const why = body.plannedDate ? `Moved to ${body.plannedDate}.` : "Moved to someday.";
-          removeTaskFromPlan(c.db, d, id, why, d === today ? { nowMin, note: why.replace(/\.$/, "") } : undefined);
-        }
-      }
-      return t;
-    })();
-    if (!task) throw new UserFacingError("Task not found.", 404, "not_found");
+    const task = setTaskFields(c.db, String(req.params.id), body, { tz: c.tz, viewer: c.viewer });
     res.json({ state: state(req, c), task });
   }),
 );
@@ -423,6 +424,27 @@ app.post(
   }),
 );
 
+/** Undo from a receipt (toast or chat). */
+app.post(
+  "/api/undo/:id",
+  h((req, res) => {
+    const c = ctx(req);
+    const message = undoAction(c.db, String(req.params.id), { tz: c.tz, viewer: c.viewer });
+    res.json({ state: state(req, c), message });
+  }),
+);
+
+/** Runs one chat-style action (used by "Record anyway" and similar receipt buttons). */
+app.post(
+  "/api/actions",
+  h((req, res) => {
+    const c = ctx(req);
+    const a = parse(ActionRequest, req.body);
+    const receipt = runAction(c.db, a, { tz: c.tz, viewer: c.viewer });
+    res.json({ state: state(req, c), receipt });
+  }),
+);
+
 app.post(
   "/api/tasks/:id/reschedule",
   h((req, res) => {
@@ -457,8 +479,95 @@ app.post(
   "/api/tasks/:id/timer",
   h((req, res) => {
     const c = ctx(req);
-    const body = parse(z.object({ action: z.enum(["start", "stop"]) }), req.body);
-    if (!setTimer(c.db, String(req.params.id), body.action)) throw new UserFacingError("Task not found.", 404, "not_found");
+    const body = parse(
+      z.object({
+        action: z.enum(["start", "stop"]),
+        /** When another timer is running: pause it or finish it, then start this one. */
+        switch: z.enum(["pause", "finish"]).optional(),
+        /** For an uncertain timer: keep the elapsed time, set the real minutes, or discard it. */
+        resolution: z.object({ keep: z.boolean().optional(), minutes: z.number().int().min(1).max(24 * 60).nullable().optional(), discard: z.boolean().optional() }).optional(),
+      }),
+      req.body,
+    );
+    const id = String(req.params.id);
+    let session = null;
+    let paused = null;
+    if (body.action === "start") {
+      const r = startTimer(c.db, id, { switchMode: body.switch, clientId: c.viewer.clientId, viewer: c.viewer });
+      paused = r.paused;
+    } else {
+      session = stopTimer(c.db, id, { resolution: body.resolution, viewer: c.viewer }).session;
+    }
+    res.json({ state: state(req, c), session, paused });
+  }),
+);
+
+/** "Still working": this device takes over a timer that was left running or started elsewhere. */
+app.post(
+  "/api/tasks/:id/still-working",
+  h((req, res) => {
+    const c = ctx(req);
+    confirmStillWorking(c.db, String(req.params.id), c.viewer.clientId);
+    res.json({ state: state(req, c) });
+  }),
+);
+
+/** Finish a task. Ends its timer but never invents time; uncertain timer time is flagged for a check. */
+app.post(
+  "/api/tasks/:id/finish",
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(z.object({ resolution: z.object({ keep: z.boolean().optional(), minutes: z.number().int().min(1).max(24 * 60).nullable().optional(), discard: z.boolean().optional() }).optional() }), req.body ?? {});
+    const r = finishTask(c.db, String(req.params.id), { resolution: body.resolution, viewer: c.viewer });
+    res.json({ state: state(req, c), session: r.session });
+  }),
+);
+
+/** Time worked that the timer didn't catch. Recorded as "reported", checked for overlaps and duplicates. */
+app.post(
+  "/api/tasks/:id/time",
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(
+      z.object({
+        minutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
+        from: z.string().refine(isValidTime, "Use HH:MM").nullable().optional(),
+        to: z.string().refine(isValidTime, "Use HH:MM").nullable().optional(),
+        date: z.string().refine(isValidDate, "Use YYYY-MM-DD").optional(),
+        note: z.string().max(300).nullable().optional(),
+        force: z.boolean().optional(),
+      }),
+      req.body,
+    );
+    const session = reportSession(c.db, { taskId: String(req.params.id), date: body.date ?? localNow(c.tz).date, ...body });
+    res.json({ state: state(req, c), session });
+  }),
+);
+
+app.get(
+  "/api/tasks/:id/sessions",
+  h((req, res) => {
+    const c = ctx(req);
+    res.json({ sessions: listSessionsForTask(c.db, String(req.params.id)) });
+  }),
+);
+
+/** Confirm, correct or discard a time record; or change its minutes. */
+app.patch(
+  "/api/sessions/:id",
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(z.object({ keep: z.boolean().optional(), minutes: z.number().int().min(1).max(24 * 60).nullable().optional(), discard: z.boolean().optional() }), req.body);
+    resolveSession(c.db, String(req.params.id), body);
+    res.json({ state: state(req, c) });
+  }),
+);
+
+app.delete(
+  "/api/sessions/:id",
+  h((req, res) => {
+    const c = ctx(req);
+    if (!deleteSession(c.db, String(req.params.id))) throw new UserFacingError("That time record wasn't found.", 404, "not_found");
     res.json({ state: state(req, c) });
   }),
 );
@@ -713,7 +822,7 @@ if (fs.existsSync(path.join(distDir, "index.html"))) {
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof UserFacingError) {
-    return res.status(err.status).json({ error: err.message, code: err.code, details: err.details });
+    return res.status(err.status).json({ error: err.message, code: err.code, details: err.details, data: err.data });
   }
   if (err instanceof ProviderError) {
     console.warn(`[claude] ${err.code}: ${err.message}`);

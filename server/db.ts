@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { currentInstant, isValidTimeZone, localDateOf } from "./time.js";
+import { assessTimer } from "./timerRules.js";
 import type {
   TaskDraft,
   TaskStep,
@@ -131,7 +132,8 @@ CREATE TABLE IF NOT EXISTS work_sessions (
   source TEXT NOT NULL,
   block_start TEXT,
   note TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  verified INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_work_sessions_date ON work_sessions (date);
 -- The user's answer for a planned block (done / partly / skipped / rescheduled). Planned time itself lives in plan_blocks.
@@ -156,7 +158,7 @@ CREATE TABLE IF NOT EXISTS requests (
 const dbs = new Map<Workspace, DB>();
 
 /** Bump when the stored layout changes. Existing databases are copied aside before they are migrated. */
-const SCHEMA_VERSION = 2; // 2: work_sessions, block_outcomes
+const SCHEMA_VERSION = 3; // 2: work_sessions, block_outcomes. 3: priority, optional, deadline_time, verified sessions, pinned/provisional blocks
 const KEEP_SNAPSHOTS = 5;
 
 /**
@@ -215,6 +217,14 @@ function migrate(db: DB) {
   if (!cols.has("timer_started_at")) db.exec("ALTER TABLE tasks ADD COLUMN timer_started_at TEXT");
   if (!cols.has("planned_date")) db.exec("ALTER TABLE tasks ADD COLUMN planned_date TEXT");
   if (!cols.has("rollover_count")) db.exec("ALTER TABLE tasks ADD COLUMN rollover_count INTEGER NOT NULL DEFAULT 0");
+  if (!cols.has("priority")) db.exec("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'");
+  if (!cols.has("optional")) db.exec("ALTER TABLE tasks ADD COLUMN optional INTEGER NOT NULL DEFAULT 0");
+  if (!cols.has("deadline_time")) db.exec("ALTER TABLE tasks ADD COLUMN deadline_time TEXT");
+  const scols = new Set((db.prepare("PRAGMA table_info(work_sessions)").all() as { name: string }[]).map((c) => c.name));
+  if (!scols.has("verified")) db.exec("ALTER TABLE work_sessions ADD COLUMN verified INTEGER NOT NULL DEFAULT 1");
+  const bcols = new Set((db.prepare("PRAGMA table_info(plan_blocks)").all() as { name: string }[]).map((c) => c.name));
+  if (!bcols.has("pinned")) db.exec("ALTER TABLE plan_blocks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+  if (!bcols.has("provisional")) db.exec("ALTER TABLE plan_blocks ADD COLUMN provisional INTEGER NOT NULL DEFAULT 0");
   const mcols = new Set((db.prepare("PRAGMA table_info(meetings)").all() as { name: string }[]).map((c) => c.name));
   if (!mcols.has("source")) db.exec("ALTER TABLE meetings ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
   if (!mcols.has("feed_id")) db.exec("ALTER TABLE meetings ADD COLUMN feed_id TEXT");
@@ -340,6 +350,9 @@ interface TaskRow {
   timer_started_at: string | null;
   planned_date: string | null;
   rollover_count: number | null;
+  priority: Task["priority"] | null;
+  optional: number | null;
+  deadline_time: string | null;
 }
 
 const rowToTask = (r: TaskRow, steps: TaskStep[] = []): Task => ({
@@ -350,6 +363,9 @@ const rowToTask = (r: TaskRow, steps: TaskStep[] = []): Task => ({
   status: r.status,
   estimateMinutes: r.estimate_minutes,
   deadline: r.deadline,
+  deadlineTime: r.deadline_time ?? null,
+  priority: r.priority ?? "normal",
+  optional: !!r.optional,
   plannedDate: r.planned_date ?? null,
   project: r.project,
   createdAt: r.created_at,
@@ -490,6 +506,9 @@ export function createTask(
     status: t.status ?? "open",
     estimateMinutes: t.estimateMinutes ?? null,
     deadline: t.deadline ?? null,
+    deadlineTime: t.deadline ? (t.deadlineTime ?? null) : null,
+    priority: t.priority ?? "normal",
+    optional: t.optional ?? false,
     plannedDate: t.plannedDate ?? null,
     project: t.project ?? null,
     createdAt: ts,
@@ -504,9 +523,18 @@ export function createTask(
   };
   if (t.createdAt) task.createdAt = task.updatedAt = t.createdAt;
   db.prepare(
-    `INSERT INTO tasks (id, title, notes, type, status, estimate_minutes, deadline, planned_date, project, created_at, updated_at, completed_at, source)
-     VALUES (@id, @title, @notes, @type, @status, @estimateMinutes, @deadline, @plannedDate, @project, @createdAt, @updatedAt, @completedAt, @source)`,
-  ).run({ ...task, steps: undefined, actualMinutes: undefined, spentMinutes: undefined, timerStartedAt: undefined, rolloverCount: undefined });
+    `INSERT INTO tasks (id, title, notes, type, status, estimate_minutes, deadline, deadline_time, priority, optional, planned_date, project, created_at, updated_at, completed_at, source)
+     VALUES (@id, @title, @notes, @type, @status, @estimateMinutes, @deadline, @deadlineTime, @priority, @optionalInt, @plannedDate, @project, @createdAt, @updatedAt, @completedAt, @source)`,
+  ).run({
+    ...task,
+    optionalInt: task.optional ? 1 : 0,
+    optional: undefined,
+    steps: undefined,
+    actualMinutes: undefined,
+    spentMinutes: undefined,
+    timerStartedAt: undefined,
+    rolloverCount: undefined,
+  });
   return task;
 }
 
@@ -519,18 +547,18 @@ export function updateTask(db: DB, id: string, patch: Partial<Task>): Task | nul
   }
   // Finishing (or blocking) a task stops its focus timer and records the time spent.
   if (cur.timerStartedAt && patch.status && patch.status !== "open") {
-    next.spentMinutes = cur.spentMinutes + elapsedMinutes(cur.timerStartedAt);
     next.timerStartedAt = null;
-    recordTimerSession(db, id, cur.timerStartedAt);
+    const s = recordTimerSession(db, cur);
+    next.spentMinutes = cur.spentMinutes + (s?.verified ? s.minutes : 0);
   }
   if (patch.status === "done" && next.actualMinutes == null && next.spentMinutes > 0) {
     next.actualMinutes = next.spentMinutes;
   }
   db.prepare(
     `UPDATE tasks SET title=@title, notes=@notes, type=@type, status=@status, estimate_minutes=@estimateMinutes,
-     deadline=@deadline, planned_date=@plannedDate, project=@project, updated_at=@updatedAt, completed_at=@completedAt,
+     deadline=@deadline, deadline_time=@deadlineTime, priority=@priority, optional=@optionalInt, planned_date=@plannedDate, project=@project, updated_at=@updatedAt, completed_at=@completedAt,
      actual_minutes=@actualMinutes, spent_minutes=@spentMinutes, timer_started_at=@timerStartedAt, rollover_count=@rolloverCount WHERE id=@id`,
-  ).run({ ...next, steps: undefined });
+  ).run({ ...next, deadlineTime: next.deadline ? next.deadlineTime : null, optionalInt: next.optional ? 1 : 0, steps: undefined });
   return next;
 }
 
@@ -539,7 +567,7 @@ export const elapsedMinutes = (startIso: string) => Math.max(0, Math.round((curr
 // ---------- actual work sessions ----------
 
 /** The timezone used to decide which day a session belongs to: the profile's, else the last one the app saw. */
-function sessionTimezone(db: DB): string {
+export function sessionTimezone(db: DB): string {
   const row = db.prepare("SELECT data FROM profile WHERE id = 1").get() as { data: string } | undefined;
   const fromProfile = row ? (JSON.parse(row.data).timezone as string | undefined) : undefined;
   if (isValidTimeZone(fromProfile)) return fromProfile;
@@ -554,37 +582,133 @@ export interface SessionRow {
   startedAt: string | null;
   endedAt: string | null;
   minutes: number;
-  source: "timer" | "confirmed";
+  source: "timer" | "reported" | "confirmed";
   blockStart: string | null;
   note: string | null;
+  verified: boolean;
 }
 
-/** A timer stretch that just ended (paused, stopped or the task finished). Stretches under half a minute are noise. */
-function recordTimerSession(db: DB, taskId: string, startedAt: string) {
-  const minutes = elapsedMinutes(startedAt);
-  if (minutes < 1) return;
-  const endedAt = clockIso();
+const SESSION_COLS =
+  "id, task_id AS taskId, date, started_at AS startedAt, ended_at AS endedAt, minutes, source, block_start AS blockStart, note, verified";
+const toSession = (r: Omit<SessionRow, "verified"> & { verified: number }): SessionRow => ({ ...r, verified: !!r.verified });
+
+/** Keeps a task's running total of verified minutes in step with its sessions. */
+export function adjustSpent(db: DB, taskId: string, delta: number) {
+  if (!delta) return;
+  db.prepare("UPDATE tasks SET spent_minutes = MAX(0, spent_minutes + ?) WHERE id = ?").run(Math.round(delta), taskId);
+}
+
+export function insertSession(
+  db: DB,
+  s: {
+    taskId: string;
+    date: string;
+    minutes: number;
+    source: SessionRow["source"];
+    startedAt?: string | null;
+    endedAt?: string | null;
+    blockStart?: string | null;
+    note?: string | null;
+    verified?: boolean;
+    /** Add the minutes to the task's total now (default). */
+    adjust?: boolean;
+  },
+): SessionRow {
+  const id = newId("ws");
+  const verified = s.verified ?? true;
   db.prepare(
-    "INSERT INTO work_sessions (id, task_id, date, started_at, ended_at, minutes, source, block_start, note, created_at) VALUES (?, ?, ?, ?, ?, ?, 'timer', NULL, NULL, ?)",
-  ).run(newId("ws"), taskId, localDateOf(startedAt, sessionTimezone(db)), startedAt, endedAt, minutes, endedAt);
+    "INSERT INTO work_sessions (id, task_id, date, started_at, ended_at, minutes, source, block_start, note, created_at, verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(id, s.taskId, s.date, s.startedAt ?? null, s.endedAt ?? null, Math.round(s.minutes), s.source, s.blockStart ?? null, s.note ?? null, clockIso(), verified ? 1 : 0);
+  if (verified && (s.adjust ?? true)) adjustSpent(db, s.taskId, s.minutes);
+  return getSession(db, id)!;
 }
 
-/** Work you confirmed in the review (not from the timer). */
+export function getSession(db: DB, id: string): SessionRow | null {
+  const r = db.prepare(`SELECT ${SESSION_COLS} FROM work_sessions WHERE id = ?`).get(id) as any;
+  return r ? toSession(r) : null;
+}
+
+/** Changes a session's minutes and/or whether it is verified, keeping the task's total right. */
+export function updateSession(db: DB, id: string, patch: { minutes?: number; verified?: boolean; note?: string | null }): SessionRow | null {
+  const cur = getSession(db, id);
+  if (!cur) return null;
+  const minutes = patch.minutes != null ? Math.round(patch.minutes) : cur.minutes;
+  const verified = patch.verified ?? cur.verified;
+  adjustSpent(db, cur.taskId, (verified ? minutes : 0) - (cur.verified ? cur.minutes : 0));
+  db.prepare("UPDATE work_sessions SET minutes = ?, verified = ?, note = ? WHERE id = ?").run(minutes, verified ? 1 : 0, patch.note !== undefined ? patch.note : cur.note, id);
+  return getSession(db, id);
+}
+
+export function deleteSession(db: DB, id: string): boolean {
+  const cur = getSession(db, id);
+  if (!cur) return false;
+  adjustSpent(db, cur.taskId, -(cur.verified ? cur.minutes : 0));
+  db.prepare("DELETE FROM work_sessions WHERE id = ?").run(id);
+  return true;
+}
+
+/** The note on uncertain timer time names why it needs a check ("needs-check:too_long"). */
+export const NEEDS_CHECK = "needs-check:";
+
+/**
+ * Ends the running stretch of a task's timer and records it. Time the app can't vouch for (left running, another
+ * device, across midnight…) is saved as "needs a check" and does NOT count toward the task's total until confirmed.
+ * The caller updates the task row itself (clearing `timer_started_at`).
+ */
+export function recordTimerSession(db: DB, task: Task, opts: { verified?: boolean; minutes?: number; note?: string | null; doubt?: string | null } = {}): SessionRow | null {
+  if (!task.timerStartedAt) return null;
+  const elapsed = elapsedMinutes(task.timerStartedAt);
+  const minutes = opts.minutes ?? elapsed;
+  if (minutes < 1) return null;
+  const tz = sessionTimezone(db);
+  const doubt =
+    opts.doubt !== undefined
+      ? opts.doubt
+      : assessTimer({
+          startedAt: task.timerStartedAt,
+          now: currentInstant(),
+          estimateMinutes: task.estimateMinutes,
+          tz,
+          snoozeUntil: getSetting(db, `timer_snooze:${task.id}`),
+        });
+  const verified = opts.verified ?? !doubt;
+  return insertSession(db, {
+    taskId: task.id,
+    date: localDateOf(task.timerStartedAt, tz),
+    minutes,
+    source: "timer",
+    startedAt: task.timerStartedAt,
+    endedAt: clockIso(),
+    verified,
+    note: opts.note !== undefined ? opts.note : !verified && doubt ? `${NEEDS_CHECK}${doubt}` : null,
+    adjust: false,
+  });
+}
+
+/** Work confirmed in the review for a planned block (not measured by the timer). */
 export function addConfirmedSession(db: DB, s: { taskId: string; date: string; minutes: number; blockStart: string | null; note?: string | null }) {
   if (s.minutes < 1) return;
-  db.prepare(
-    "INSERT INTO work_sessions (id, task_id, date, started_at, ended_at, minutes, source, block_start, note, created_at) VALUES (?, ?, ?, NULL, NULL, ?, 'confirmed', ?, ?, ?)",
-  ).run(newId("ws"), s.taskId, s.date, Math.round(s.minutes), s.blockStart, s.note ?? null, clockIso());
+  insertSession(db, { taskId: s.taskId, date: s.date, minutes: s.minutes, source: "confirmed", blockStart: s.blockStart, note: s.note ?? null });
+}
+
+export function deleteConfirmedSessions(db: DB, taskId: string, date: string, blockStart: string) {
+  const rows = db.prepare("SELECT id FROM work_sessions WHERE source = 'confirmed' AND task_id = ? AND date = ? AND block_start = ?").all(taskId, date, blockStart) as { id: string }[];
+  for (const r of rows) deleteSession(db, r.id);
 }
 
 export function listSessions(db: DB, date: string): SessionRow[] {
   return (
-    db
-      .prepare(
-        "SELECT id, task_id AS taskId, date, started_at AS startedAt, ended_at AS endedAt, minutes, source, block_start AS blockStart, note FROM work_sessions WHERE date = ? ORDER BY COALESCE(started_at, created_at)",
-      )
-      .all(date) as SessionRow[]
-  );
+    db.prepare(`SELECT ${SESSION_COLS} FROM work_sessions WHERE date = ? ORDER BY COALESCE(started_at, created_at)`).all(date) as any[]
+  ).map(toSession);
+}
+
+/** Uncertain timer time waiting for the user to confirm or correct it (any day). */
+export function listUnverifiedSessions(db: DB): SessionRow[] {
+  return (db.prepare(`SELECT ${SESSION_COLS} FROM work_sessions WHERE verified = 0 ORDER BY created_at`).all() as any[]).map(toSession);
+}
+
+export function listSessionsForTask(db: DB, taskId: string): SessionRow[] {
+  return (db.prepare(`SELECT ${SESSION_COLS} FROM work_sessions WHERE task_id = ? ORDER BY COALESCE(started_at, created_at)`).all(taskId) as any[]).map(toSession);
 }
 
 // ---------- outcomes of planned blocks ----------
@@ -610,22 +734,6 @@ export function listBlockOutcomes(db: DB, date: string): BlockOutcomeRow[] {
   return db
     .prepare("SELECT date, task_id AS taskId, start, outcome, minutes, note FROM block_outcomes WHERE date = ?")
     .all(date) as BlockOutcomeRow[];
-}
-
-/** Starts or pauses a task's focus timer. Only one timer runs at a time. */
-export function setTimer(db: DB, id: string, action: "start" | "stop"): Task | null {
-  return db.transaction(() => {
-    const cur = getTask(db, id);
-    if (!cur) return null;
-    if (action === "start") {
-      for (const t of listTasks(db).filter((x) => x.timerStartedAt && x.id !== id)) setTimer(db, t.id, "stop");
-      if (cur.timerStartedAt) return cur;
-      return updateTask(db, id, { timerStartedAt: clockIso() });
-    }
-    if (!cur.timerStartedAt) return cur;
-    recordTimerSession(db, id, cur.timerStartedAt);
-    return updateTask(db, id, { timerStartedAt: null, spentMinutes: cur.spentMinutes + elapsedMinutes(cur.timerStartedAt) });
-  })();
 }
 
 export function deleteTask(db: DB, id: string) {
@@ -775,9 +883,19 @@ interface PlanRow {
 function loadPlan(db: DB, r: PlanRow): Plan {
   const blocks = (
     db
-      .prepare("SELECT id, start, end, kind, task_id, meeting_id, title FROM plan_blocks WHERE plan_id = ? ORDER BY position")
-      .all(r.id) as { id: string; start: string; end: string; kind: PlanBlock["kind"]; task_id: string | null; meeting_id: string | null; title: string }[]
-  ).map((b) => ({ id: b.id, start: b.start, end: b.end, kind: b.kind, taskId: b.task_id, meetingId: b.meeting_id, title: b.title }));
+      .prepare("SELECT id, start, end, kind, task_id, meeting_id, title, pinned, provisional FROM plan_blocks WHERE plan_id = ? ORDER BY position")
+      .all(r.id) as { id: string; start: string; end: string; kind: PlanBlock["kind"]; task_id: string | null; meeting_id: string | null; title: string; pinned: number; provisional: number }[]
+  ).map((b) => ({
+    id: b.id,
+    start: b.start,
+    end: b.end,
+    kind: b.kind,
+    taskId: b.task_id,
+    meetingId: b.meeting_id,
+    title: b.title,
+    ...(b.pinned ? { pinned: true } : {}),
+    ...(b.provisional ? { provisional: true } : {}),
+  }));
   return {
     ...JSON.parse(r.data),
     id: r.id,
@@ -846,9 +964,9 @@ export function savePlanVersion(
       "INSERT INTO plans (id, date, version, status, data, created_at, proposal_id, source) VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?)",
     ).run(id, draft.date, cur + 1, JSON.stringify(rest), createdAt, opts.proposalId, opts.source);
     const ins = db.prepare(
-      "INSERT INTO plan_blocks (plan_id, id, position, start, end, kind, task_id, meeting_id, title) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO plan_blocks (plan_id, id, position, start, end, kind, task_id, meeting_id, title, pinned, provisional) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
-    blocks.forEach((b, i) => ins.run(id, b.id, i, b.start, b.end, b.kind, b.taskId, b.meetingId, b.title));
+    blocks.forEach((b, i) => ins.run(id, b.id, i, b.start, b.end, b.kind, b.taskId, b.meetingId, b.title, b.pinned ? 1 : 0, b.provisional ? 1 : 0));
     return currentPlan(db, draft.date)!;
   })();
 }

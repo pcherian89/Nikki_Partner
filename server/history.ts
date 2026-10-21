@@ -7,7 +7,7 @@ import { localNow, toMinutes } from "./time.js";
  * Nothing here is stored twice and nothing is ever deleted: replanning writes a new plan version, the old one stays,
  * and this view reads them all. A block is identified by its task and start time.
  *
- * A status is only "done"/"partial"/"skipped" if the user said so — or if they finished the task itself. The passage of
+ * A status is only "done"/"partial"/"skipped" if the user said so. The passage of
  * time alone never marks anything done, skipped or moved; it just makes a block "unconfirmed".
  */
 export function dayHistory(db: DB, date: string, tz: string, now: { date: string; time: string }): HistoryItem[] {
@@ -81,11 +81,12 @@ export function dayHistory(db: DB, date: string, tz: string, now: { date: string
     } else if (task?.deleted) {
       status = "removed";
     } else if (task?.status === "done" && task.completedAt) {
-      // The user finished the task itself: earlier blocks count as done, later ones weren't needed.
+      // Finishing the task does not say what happened in each earlier block (they stay unconfirmed until the user answers);
+      // only blocks that begin after the task was finished are known not to have happened.
       const doneAt = localNow(tz, new Date(task.completedAt));
       if (doneAt.date < date) status = "replaced";
       else if (doneAt.date > date) status = "unconfirmed";
-      else status = startMin <= toMinutes(doneAt.time) ? "done" : "replaced";
+      else status = startMin <= toMinutes(doneAt.time) ? "unconfirmed" : "replaced";
     } else if (!inCurrent) {
       // Dropped from a later plan version. Before it began, that is a reschedule; once it had begun, nobody said what happened.
       const removedAt = createdAtOf(s.last + 1);

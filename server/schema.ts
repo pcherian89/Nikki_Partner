@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CONTEXT_FIELDS } from "../shared/types.js";
+import { ActionRequest } from "./commands.js";
 
 /**
  * The structured response Nikki (the model) must return on every turn.
@@ -18,7 +19,7 @@ const refWhy = { type: "object", additionalProperties: false, required: ["task_r
 export const RESPONSE_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["message", "questions", "quick_replies", "captured_items", "task_updates", "meetings", "context_updates", "plan"],
+  required: ["message", "questions", "quick_replies", "captured_items", "task_updates", "actions", "meetings", "context_updates", "plan"],
   properties: {
     message: str,
     questions: { type: "array", items: str },
@@ -28,7 +29,7 @@ export const RESPONSE_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["ref", "kind", "title", "notes", "estimate_minutes", "deadline", "planned_date", "project", "duplicate_of"],
+        required: ["ref", "kind", "title", "notes", "estimate_minutes", "deadline", "deadline_time", "planned_date", "priority", "optional", "project", "duplicate_of"],
         properties: {
           ref: str,
           kind: { type: "string", enum: ["action", "idea", "reference"] },
@@ -36,7 +37,10 @@ export const RESPONSE_JSON_SCHEMA = {
           notes: str,
           estimate_minutes: int,
           deadline: str,
+          deadline_time: str,
           planned_date: str,
+          priority: { type: "string", enum: ["high", "normal", "low"] },
+          optional: { type: "boolean" },
           project: str,
           duplicate_of: str,
         },
@@ -57,6 +61,25 @@ export const RESPONSE_JSON_SCHEMA = {
           planned_date: str,
           notes: str,
           reason: str,
+        },
+      },
+    },
+    actions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type", "task_id", "minutes", "from", "to", "date", "time", "priority", "flag"],
+        properties: {
+          type: { type: "string", enum: ["start", "pause", "finish", "report_time", "set_priority", "set_optional", "set_deadline", "move_day", "reopen"] },
+          task_id: str,
+          minutes: int,
+          from: str,
+          to: str,
+          date: str,
+          time: str,
+          priority: { type: "string", enum: ["high", "normal", "low", ""] },
+          flag: { type: "boolean" },
         },
       },
     },
@@ -141,7 +164,10 @@ export const ModelResponse = z.object({
       notes: optStr,
       estimate_minutes: optMinutes,
       deadline: optStr,
+      deadline_time: optStr.optional().default(null),
       planned_date: optStr.optional().default(null),
+      priority: z.enum(["high", "normal", "low"]).optional().default("normal"),
+      optional: z.boolean().optional().default(false),
       project: optStr,
       duplicate_of: optStr,
     }),
@@ -158,6 +184,7 @@ export const ModelResponse = z.object({
       reason: z.string(),
     }),
   ),
+  actions: z.array(ActionRequest).optional().default([]),
   meetings: z.array(z.object({ date: optStr.optional().default(null), title: z.string().min(1), start: z.string(), end: z.string() })),
   context_updates: z.array(
     z.object({

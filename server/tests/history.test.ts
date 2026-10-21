@@ -240,7 +240,7 @@ test("history: time passing alone never marks anything done, skipped or moved", 
   assert.equal(old.json.items[0].status, "unconfirmed");
 });
 
-test("history: finishing the task counts earlier blocks as done and later ones as not needed", async () => {
+test("history: finishing the task does not mark earlier blocks done; only later ones become not needed", async () => {
   const a = task("Medical presentation");
   savePlan([
     { start: "10:00", end: "11:00", kind: "focus", task: a, title: "Medical presentation" },
@@ -249,7 +249,7 @@ test("history: finishing the task counts earlier blocks as done and later ones a
   at("12:00");
   await api("PATCH", `/api/tasks/${a}`, { status: "done" });
   const items = (await state()).history.map((h: any) => `${h.start} ${h.status}`);
-  assert.deepEqual(items, ["10:00 done", "14:00 replaced"]);
+  assert.deepEqual(items, ["10:00 unconfirmed", "14:00 replaced"]);
 });
 
 test("history: a task can have several sessions on one day, each kept", async () => {
@@ -393,7 +393,7 @@ test("migration: an existing database is copied aside first and its data is unto
       console.log(JSON.stringify({ version: db.pragma("user_version", { simple: true }), tables, titles: db.prepare("SELECT title FROM tasks").all().map((r) => r.title) }));
     `);
     const info = JSON.parse(out.trim().split("\n").pop()!);
-    assert.equal(info.version, 2);
+    assert.equal(info.version, 3);
     assert.ok(info.tables.includes("work_sessions") && info.tables.includes("block_outcomes"));
     assert.deepEqual(info.titles, ["Existing task"], "existing tasks survive");
     const baks = fs.readdirSync(dir).filter((f) => f.endsWith(".bak"));

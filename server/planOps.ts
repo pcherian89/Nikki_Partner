@@ -33,11 +33,15 @@ import {
   addMessage,
   getTask,
   listSessions,
+  listUnverifiedSessions,
   recordBlockOutcome,
   addConfirmedSession,
+  deleteConfirmedSessions,
   type BlockOutcomeValue,
 } from "./db.js";
 import { dayHistory } from "./history.js";
+import { buildFacts, computeCarryovers, computeDays, computeTaskMeta, remainingEffort, suggestNext } from "./derived.js";
+import { describeTimer, type Viewer } from "./timer.js";
 import { freeSegments } from "./scheduler.js";
 import { currentBuildId } from "./build.js";
 import { getProvider } from "./provider/index.js";
@@ -45,7 +49,7 @@ import { estimationInsight } from "./learning.js";
 import { feedInfo } from "./calendar.js";
 import { getFeedToken } from "./icsExport.js";
 import { LIST_FIELDS, recordDecision } from "./contextMemory.js";
-import { addDays, fromMinutes, isValidTimeZone, isValidTime, localDateOf, localNow, toMinutes, weekdayOf } from "./time.js";
+import { addDays, currentInstant, fromMinutes, isValidTimeZone, isValidTime, localDateOf, localNow, toMinutes, weekdayOf } from "./time.js";
 import { freeMinutes, validatePlanDraft, WORK_KINDS, workMinutes } from "./validate.js";
 
 export function resolveTimezone(profile: Profile, headerTz: string | undefined): string {
@@ -54,7 +58,7 @@ export function resolveTimezone(profile: Profile, headerTz: string | undefined):
   return "UTC";
 }
 
-export function buildState(db: DB, ws: Workspace, headerTz: string | undefined): AppState {
+export function buildState(db: DB, ws: Workspace, headerTz: string | undefined, viewer: Viewer = { clientId: null, prevSeenAt: null }): AppState {
   const profile = getProfile(db);
   const tz = resolveTimezone(profile, headerTz);
   const now = localNow(tz);
@@ -82,6 +86,9 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined):
     if (unfinished.length) newDay = { lastPlanDate: last?.date ?? addDays(now.date, -1), unfinishedTaskIds: unfinished };
   }
   const messages = recentMessages(db, 80);
+  const facts = buildFacts(db, tz, profile);
+  const sessionCounts = new Map((db.prepare("SELECT task_id AS id, COUNT(*) AS n FROM work_sessions GROUP BY task_id").all() as { id: string; n: number }[]).map((r) => [r.id, r.n]));
+  const taskMeta = computeTaskMeta(tasks, facts, sessionCounts);
   return {
     workspace: ws,
     liveAvailable: getProvider() !== null,
@@ -114,6 +121,18 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined):
     buildId: currentBuildId(),
     history: dayHistory(db, now.date, tz, now),
     sessions: listSessions(db, now.date),
+    serverNow: currentInstant().toISOString(),
+    running: (() => {
+      const t = tasks.find((x) => x.timerStartedAt);
+      if (!t) return null;
+      const d = describeTimer(db, t, viewer);
+      return { taskId: d.taskId, title: d.title, startedAt: d.startedAt, minutes: d.minutes, doubt: d.doubt };
+    })(),
+    checks: listUnverifiedSessions(db),
+    taskMeta,
+    days: computeDays(tasks, facts),
+    carryovers: computeCarryovers(db, tasks, facts),
+    suggestion: suggestNext(tasks, facts, taskMeta),
     hasAnyData: messages.length > 0 || tasks.length > 0 || !!profile.updatedAt || feedInfo(db).length > 0,
   };
 }
@@ -366,7 +385,111 @@ export function removeTaskFromPlan(
   return true;
 }
 
-export type RescheduleInput = { to: "later_today" } | { to: "date"; date: string } | { to: "someday" };
+export type RescheduleInput = { to: "later_today"; at?: string } | { to: "date"; date: string } | { to: "someday" };
+
+export interface LaterTodayOption {
+  start: string;
+  end: string;
+  /** The whole task fits in this one gap. */
+  fitsAll: boolean;
+}
+
+export interface LaterTodayPreview {
+  taskId: string;
+  title: string;
+  needMinutes: number;
+  /** The task has no estimate, so the length is a stand-in. */
+  provisional: boolean;
+  /** Free gaps (15 min or more) from now to the end of the working window, after every block already in the plan. */
+  options: LaterTodayOption[];
+  /** If no single gap fits it: the earliest way to split it across gaps. */
+  split: { start: string; end: string }[] | null;
+  freeMinutes: number;
+  /** It already has a block coming up later today. */
+  alreadyLater: boolean;
+  /** Why it can't be placed, when it can't. */
+  reason: string | null;
+}
+
+/**
+ * Works out where a task could go later today — without changing anything. Meetings, other tasks, breaks and buffer all
+ * count as busy; nothing is moved or overlapped. With `at` ("HH:MM" or "split") the chosen placement is also built.
+ */
+export function computeLaterToday(db: DB, taskId: string, timezone: string, at?: string) {
+  const task = getTask(db, taskId);
+  if (!task) throw new UserFacingError("Task not found.", 404, "not_found");
+  const now = localNow(timezone);
+  const plan = currentPlan(db, now.date);
+  if (!plan) throw new UserFacingError("There's no plan for today to fit it into. Ask Nikki to plan today.", 409, "no_plan");
+  const nowMin = toMinutes(now.time);
+  const own = plan.blocks.filter((b) => b.taskId === taskId && WORK_KINDS.has(b.kind));
+  const missed = own.filter((b) => toMinutes(b.end) <= nowMin);
+  const missedMinutes = missed.reduce((s, b) => s + toMinutes(b.end) - toMinutes(b.start), 0);
+  const remaining = remainingEffort(task);
+  const known = missedMinutes || (remaining && remaining > 0 ? remaining : 0) || task.estimateMinutes || 0;
+  const need = Math.max(15, Math.min(240, known || 30));
+  const provisional = !known;
+  const others = plan.blocks.filter((b) => !missed.includes(b));
+  const from = Math.max(toMinutes(plan.window.start), Math.ceil(nowMin / 5) * 5);
+  const busy = others.map((b) => ({ start: b.start, end: b.end })).sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+  const gaps = freeSegments(from, toMinutes(plan.window.end), busy).filter(([s, e]) => e - s >= 15);
+  const options: LaterTodayOption[] = gaps.map(([s, e]) => ({ start: fromMinutes(s), end: fromMinutes(e), fitsAll: e - s >= need }));
+  const freeMin = gaps.reduce((t, [s, e]) => t + (e - s), 0);
+  let split: { start: string; end: string }[] | null = null;
+  if (!options.some((o) => o.fitsAll) && freeMin >= need) {
+    split = [];
+    let left = need;
+    for (const [s, e] of gaps) {
+      if (left <= 0) break;
+      const take = Math.min(left, e - s);
+      split.push({ start: fromMinutes(s), end: fromMinutes(s + take) });
+      left -= take;
+    }
+  }
+  const alreadyLater = own.length > 0 && !missed.length;
+  const reason =
+    freeMin >= need
+      ? null
+      : `There isn't ${need} minutes free in the rest of today's plan (${freeMin} min free). Move it to tomorrow, pick another day, or ask Nikki to rework the day.`;
+  const preview: LaterTodayPreview = { taskId, title: task.title, needMinutes: need, provisional, options, split, freeMinutes: freeMin, alreadyLater, reason };
+
+  // Build the chosen placement.
+  let pieces: [number, number][] | null = null;
+  if (!reason) {
+    if (at === "split" && split) pieces = split.map((p) => [toMinutes(p.start), toMinutes(p.end)]);
+    else if (at && at !== "split") {
+      const atMin = toMinutes(at);
+      const gap = gaps.find(([s, e]) => s <= atMin && atMin < e);
+      if (!gap || gap[1] - atMin < need) throw new UserFacingError(`There isn't ${need} minutes free from ${at}. Pick one of the free times shown.`, 422, "no_room");
+      pieces = [[atMin, atMin + need]];
+    } else if (options.some((o) => o.fitsAll)) {
+      const o = options.find((x) => x.fitsAll)!;
+      pieces = [[toMinutes(o.start), toMinutes(o.start) + need]];
+    } else if (split) pieces = split.map((p) => [toMinutes(p.start), toMinutes(p.end)]);
+  }
+  const { meetings } = withMeetingBlocks(db, now.date, plan.blocks);
+  if (!pieces) return { preview, final: null as PlanDraft | null, added: [] as PlanBlock[], missed, meetings, version: plan.version, alreadyLater };
+  const kind: "focus" | "task" = own.some((b) => b.kind === "focus") ? "focus" : "task";
+  const added: PlanBlock[] = pieces.map(([s, e]) => ({
+    id: newId("b"),
+    start: fromMinutes(s),
+    end: fromMinutes(e),
+    kind,
+    taskId,
+    meetingId: null,
+    title: task.title,
+    ...(provisional ? { provisional: true } : {}),
+  }));
+  const { id: _i, version, status: _s, createdAt: _c, proposalId: _p, source: _so, ...draft } = plan;
+  const blocks = sortBlocks([...others, ...added]);
+  const work = blocks.filter((b) => WORK_KINDS.has(b.kind)).reduce((t, b) => t + toMinutes(b.end) - toMinutes(b.start), 0);
+  const final: PlanDraft = { ...draft, blocks, deferred: draft.deferred.filter((d) => d.taskId !== taskId), workBudgetMinutes: Math.max(draft.workBudgetMinutes, work) };
+  return { preview, final, added, missed, meetings, version, alreadyLater };
+}
+
+export function previewLaterToday(db: DB, taskId: string, timezone: string): LaterTodayPreview {
+  return computeLaterToday(db, taskId, timezone).preview;
+}
 
 /**
  * Direct user action for work that didn't get done: fit it into a free gap later today,
@@ -381,63 +504,17 @@ export function rescheduleTask(db: DB, taskId: string, input: RescheduleInput, t
   const now = localNow(timezone);
   return db.transaction(() => {
     if (input.to === "later_today") {
-      const plan = currentPlan(db, now.date);
-      if (!plan) throw new UserFacingError("There's no plan for today to fit it into. Ask Nikki to plan today.");
-      // Only the part whose time has passed moves; anything still coming up stays where it is.
-      const nowMin = toMinutes(now.time);
-      const own = plan.blocks.filter((b) => b.taskId === taskId && WORK_KINDS.has(b.kind));
-      const missed = own.filter((b) => toMinutes(b.end) <= nowMin);
-      const missedMinutes = missed.reduce((s, b) => s + toMinutes(b.end) - toMinutes(b.start), 0);
-      if (own.length && !missed.length) return { message: `“${task.title}” is already coming up later today.` };
-      const need = Math.max(15, Math.min(240, missedMinutes || task.estimateMinutes || 30));
-      const others = plan.blocks.filter((b) => !missed.includes(b));
-      const from = Math.max(toMinutes(plan.window.start), Math.ceil(toMinutes(now.time) / 5) * 5);
-      const busy = others.map((b) => ({ start: b.start, end: b.end })).sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
-      // Fill the next free gaps (at least 15 minutes each) until the missed time fits.
-      const pieces: [number, number][] = [];
-      let left = need;
-      for (const [s, e] of freeSegments(from, toMinutes(plan.window.end), busy)) {
-        if (left <= 0) break;
-        if (e - s < 15) continue;
-        const take = Math.min(left, e - s);
-        pieces.push([s, s + take]);
-        left -= take;
-      }
-      if (left > 0) {
-        throw new UserFacingError(
-          `There isn't ${need} minutes free in the rest of today's plan. Move it to tomorrow, or ask Nikki to rework the day.`,
-          422,
-          "no_room",
-        );
-      }
-      const { id: _i, version, status: _s, createdAt: _c, proposalId: _p, source: _so, ...draft } = plan;
-      const kind = own.some((b) => b.kind === "focus") ? "focus" : "task";
-      const added: PlanBlock[] = pieces.map(([s, e]) => ({
-        id: newId("b"),
-        start: fromMinutes(s),
-        end: fromMinutes(e),
-        kind,
-        taskId,
-        meetingId: null,
-        title: task.title,
-      }));
-      const blocks = sortBlocks([...others, ...added]);
-      const work = blocks.filter((b) => WORK_KINDS.has(b.kind)).reduce((s, b) => s + toMinutes(b.end) - toMinutes(b.start), 0);
-      const final: PlanDraft = {
-        ...draft,
-        blocks,
-        deferred: draft.deferred.filter((d) => d.taskId !== taskId),
-        workBudgetMinutes: Math.max(draft.workBudgetMinutes, work),
-      };
-      const { meetings } = withMeetingBlocks(db, now.date, blocks);
-      const errors = validatePlanDraft(final, { meetings, tasks: taskMap(db) });
+      const c = computeLaterToday(db, taskId, timezone, input.at);
+      if (c.alreadyLater) return { message: `“${task.title}” is already coming up later today.` };
+      if (!c.final) throw new UserFacingError(c.preview.reason!, 422, "no_room");
+      const errors = validatePlanDraft(c.final, { meetings: c.meetings, tasks: taskMap(db) });
       if (errors.length) throw new UserFacingError("That doesn't fit today's plan.", 422, "invalid_plan", errors);
-      savePlanVersion(db, final, { expectedVersion: version, proposalId: null, source: "user-edit" });
+      savePlanVersion(db, c.final, { expectedVersion: c.version, proposalId: null, source: "user-edit" });
       if (recordBlocks) {
-        for (const b of missed) recordBlockOutcome(db, { date: now.date, taskId, start: b.start, outcome: "rescheduled", note: `Moved to ${added[0].start}` }, false);
+        for (const b of c.missed) recordBlockOutcome(db, { date: now.date, taskId, start: b.start, outcome: "rescheduled", note: `Moved to ${c.added[0].start}` }, false);
       }
       updateTask(db, taskId, { plannedDate: now.date, status: task.status === "done" ? "done" : "open" });
-      return { message: `Moved “${task.title}” to ${added[0].start}.` };
+      return { message: `Moved “${task.title}” to ${c.added[0].start}.` };
     }
     if (input.to === "date") {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || input.date < now.date) throw new UserFacingError("Pick today or a later date.");
@@ -632,7 +709,7 @@ export function recordOutcomes(db: DB, date: string, inputs: OutcomeInput[], tim
         minutes = Math.max(0, Math.round(o.minutes));
       }
       // Changing an answer replaces the time confirmed with the earlier one, so nothing is counted twice.
-      db.prepare("DELETE FROM work_sessions WHERE source = 'confirmed' AND task_id = ? AND date = ? AND block_start = ?").run(o.taskId, date, o.start);
+      deleteConfirmedSessions(db, o.taskId, date, o.start);
       recordBlockOutcome(db, { date, taskId: o.taskId, start: o.start, outcome: o.outcome as BlockOutcomeValue, minutes, note: o.note ?? null });
       if (minutes) addConfirmedSession(db, { taskId: o.taskId, date, minutes, blockStart: o.start });
     }

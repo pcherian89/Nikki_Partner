@@ -4,6 +4,8 @@ export type Workspace = "personal" | "demo";
 
 export type TaskType = "action" | "idea" | "reference";
 export type TaskStatus = "open" | "waiting" | "blocked" | "done";
+/** How important a task is. Affects ordering only — never whether it can be ignored or deferred. */
+export type TaskPriority = "high" | "normal" | "low";
 
 export interface Task {
   id: string;
@@ -14,6 +16,11 @@ export interface Task {
   estimateMinutes: number | null;
   /** Only set when the user stated a real deadline. Never invented. */
   deadline: string | null;
+  /** Optional time of day (HH:MM, local) for the deadline. Never a calendar event and never a work block. */
+  deadlineTime: string | null;
+  priority: TaskPriority;
+  /** "If time allows": set only by the user, independent of priority. */
+  optional: boolean;
   /** The day the user intends to work on it (rough weekly planning). */
   plannedDate: string | null;
   project: string | null;
@@ -126,6 +133,10 @@ export interface PlanBlock {
   taskId: string | null;
   meetingId: string | null;
   title: string;
+  /** The user asked for exactly this time (or set it by hand): it never moves automatically. */
+  pinned?: boolean;
+  /** The duration is a stand-in because the task has no estimate. Shown as "provisional". */
+  provisional?: boolean;
 }
 
 export interface PlanDraft {
@@ -191,9 +202,58 @@ export interface WorkSession {
   startedAt: string | null;
   endedAt: string | null;
   minutes: number;
-  source: "timer" | "confirmed";
+  /** timer = measured; reported = typed or said by the user; confirmed = "did it" for a planned block. */
+  source: "timer" | "reported" | "confirmed";
   blockStart: string | null;
   note: string | null;
+  /** False for uncertain timer time (left running, other device…) until the user confirms or corrects it. */
+  verified: boolean;
+}
+
+/** A timer that is running right now, as the server sees it. */
+export interface RunningTimer {
+  taskId: string;
+  title: string;
+  startedAt: string;
+  /** Elapsed minutes by the server's clock. */
+  minutes: number;
+  /** Why this elapsed time can't be trusted as real work (null = nothing doubtful). */
+  doubt: "other_device" | "long_absence" | "too_long" | "crossed_day" | "past_day_end" | null;
+}
+
+/** What the app works out about each open task (so every screen and Nikki agree). */
+export interface TaskMeta {
+  /** Estimate minus verified recorded time. Null when there is no estimate (unknown stays unknown). */
+  remainingMinutes: number | null;
+  /** Verified minutes recorded against the task. */
+  workedMinutes: number;
+  sessionCount: number;
+  /** overdue: deadline passed. at_risk: remaining effort doesn't fit before it. no_estimate: can't tell. */
+  deadlineStatus: "overdue" | "at_risk" | "no_estimate" | "ok" | null;
+  /** For at_risk: how many minutes short. */
+  shortByMinutes: number | null;
+}
+
+export interface DaySummary {
+  date: string;
+  /** Open tasks on that day's list (assigned to it, or in its plan). */
+  openIds: string[];
+  doneCount: number;
+  /** Work still to do on the list, from the known estimates. */
+  remainingMinutes: number;
+  /** Open tasks on the list with no estimate. */
+  unknownEstimates: number;
+  /** Work time already placed in blocks (for today, only what is still ahead). */
+  scheduledMinutes: number;
+  /** Free working time (for today, from now), after meetings. */
+  availableMinutes: number;
+  /** Time taken by meetings inside the working window. */
+  fixedMinutes: number;
+}
+
+export interface NextSuggestion {
+  taskId: string;
+  reason: string;
 }
 
 export interface TaskChange {
@@ -233,6 +293,19 @@ export interface Proposal {
   warnings: string[];
 }
 
+/** The app's own record of one chat action: what really happened, whatever the model said. */
+export interface Receipt {
+  ok: boolean;
+  text: string;
+  taskId?: string;
+  undoId?: string;
+  /** A refused action the user can still choose to run (e.g. record overlapping time anyway). */
+  retry?: Record<string, unknown>;
+  retryLabel?: string;
+  needsPreview?: boolean;
+  needsChoice?: "switch";
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -251,6 +324,7 @@ export interface ChatMessage {
     kind?: "chat" | "replan" | "review" | "wrapup";
     system?: boolean;
     quickReplies?: string[];
+    receipts?: Receipt[];
   };
 }
 
@@ -277,6 +351,17 @@ export interface AppState {
   storageWarning: string | null;
   /** The frontend build the server is serving (see server/build.ts). */
   buildId: string | null;
+  /** The server's clock, so a device with a wrong clock still shows the right elapsed time. */
+  serverNow: string;
+  running: RunningTimer | null;
+  /** Uncertain timer time waiting for the user to confirm or correct. */
+  checks: WorkSession[];
+  taskMeta: Record<string, TaskMeta>;
+  /** Today and the next six days, computed once for Today, Tomorrow and Week. */
+  days: DaySummary[];
+  /** Unfinished tasks from earlier days, visible until decided. Never assigned automatically. */
+  carryovers: string[];
+  suggestion: NextSuggestion | null;
   /** Today's planned blocks that already began or were rescheduled/removed — the day's record. */
   history: HistoryItem[];
   /** Actual work recorded today. */

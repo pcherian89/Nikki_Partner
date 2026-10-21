@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { Meeting, Plan, Task } from "../shared/types.js";
 import { currentPlan, DB, getSetting, listMeetingsBetween, listTasks, setSetting } from "./db.js";
-import { addDays, localNow } from "./time.js";
+import { addDays, localNow, localToUtc } from "./time.js";
 
 /**
  * "Nikki in your calendar": a private .ics feed of confirmed plans that the
@@ -24,33 +24,6 @@ export function resetFeedToken(db: DB): string {
 
 export function disableFeed(db: DB) {
   setSetting(db, KEY, "");
-}
-
-/** Offset (ms) of `tz` from UTC at a given instant. */
-function tzOffset(at: Date, tz: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(at);
-  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
-  const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
-  return asUtc - at.getTime();
-}
-
-/** Converts a local wall-clock date + time in `tz` to the real instant. */
-export function localToUtc(date: string, time: string, tz: string): Date {
-  const [y, mo, d] = date.split("-").map(Number);
-  const [h, mi] = time.split(":").map(Number);
-  const guess = Date.UTC(y, mo - 1, d, h, mi);
-  let t = guess - tzOffset(new Date(guess), tz);
-  t = guess - tzOffset(new Date(t), tz); // second pass handles DST edges
-  return new Date(t);
 }
 
 const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
