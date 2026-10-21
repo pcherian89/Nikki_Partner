@@ -147,6 +147,30 @@ CREATE TABLE IF NOT EXISTS block_outcomes (
   decided_at TEXT NOT NULL,
   PRIMARY KEY (date, task_id, start)
 );
+-- Long-term goals. Tasks point at a project (and optionally a milestone); there is no separate project task system.
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  goal TEXT NOT NULL DEFAULT '',
+  target_date TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  assumptions TEXT NOT NULL DEFAULT '[]',
+  dependencies TEXT NOT NULL DEFAULT '[]',
+  source TEXT NOT NULL DEFAULT 'user',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS milestones (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  target_date TEXT,
+  status TEXT NOT NULL DEFAULT 'open',
+  position INTEGER NOT NULL DEFAULT 0,
+  done_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones (project_id, position);
 -- Something to remember at a time. Not a task, a deadline, a scheduled block or a commitment.
 CREATE TABLE IF NOT EXISTS reminders (
   id TEXT PRIMARY KEY,
@@ -189,7 +213,7 @@ CREATE TABLE IF NOT EXISTS requests (
 const dbs = new Map<Workspace, DB>();
 
 /** Bump when the stored layout changes. Existing databases are copied aside before they are migrated. */
-export const SCHEMA_VERSION = 4; // 4: reminders, push_subscriptions, secrets. 2: work_sessions, block_outcomes. 3: priority, optional, deadline_time, verified sessions, pinned/provisional blocks
+export const SCHEMA_VERSION = 5; // 5: projects, milestones, tasks.project_id/milestone_id. 4: reminders, push_subscriptions, secrets. 2: work_sessions, block_outcomes. 3: priority, optional, deadline_time, verified sessions, pinned/provisional blocks
 const KEEP_SNAPSHOTS = 5;
 
 /**
@@ -249,6 +273,8 @@ export function closeAll() {
 /** Adds columns introduced after the first release to existing databases. */
 function migrate(db: DB) {
   const cols = new Set((db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has("project_id")) db.exec("ALTER TABLE tasks ADD COLUMN project_id TEXT");
+  if (!cols.has("milestone_id")) db.exec("ALTER TABLE tasks ADD COLUMN milestone_id TEXT");
   if (!cols.has("actual_minutes")) db.exec("ALTER TABLE tasks ADD COLUMN actual_minutes INTEGER");
   if (!cols.has("spent_minutes")) db.exec("ALTER TABLE tasks ADD COLUMN spent_minutes INTEGER NOT NULL DEFAULT 0");
   if (!cols.has("timer_started_at")) db.exec("ALTER TABLE tasks ADD COLUMN timer_started_at TEXT");
@@ -297,6 +323,8 @@ export const TABLES = [
   "work_sessions",
   "block_outcomes",
   "reminders",
+  "projects",
+  "milestones",
   "requests",
   "settings",
 ];
@@ -391,6 +419,8 @@ interface TaskRow {
   priority: Task["priority"] | null;
   optional: number | null;
   deadline_time: string | null;
+  project_id: string | null;
+  milestone_id: string | null;
 }
 
 const rowToTask = (r: TaskRow, steps: TaskStep[] = []): Task => ({
@@ -402,6 +432,8 @@ const rowToTask = (r: TaskRow, steps: TaskStep[] = []): Task => ({
   estimateMinutes: r.estimate_minutes,
   deadline: r.deadline,
   deadlineTime: r.deadline_time ?? null,
+  projectId: r.project_id ?? null,
+  milestoneId: r.milestone_id ?? null,
   priority: r.priority ?? "normal",
   optional: !!r.optional,
   plannedDate: r.planned_date ?? null,
@@ -549,6 +581,8 @@ export function createTask(
     optional: t.optional ?? false,
     plannedDate: t.plannedDate ?? null,
     project: t.project ?? null,
+    projectId: t.projectId ?? null,
+    milestoneId: t.milestoneId ?? null,
     createdAt: ts,
     updatedAt: ts,
     completedAt: t.status === "done" ? ts : null,
@@ -561,8 +595,8 @@ export function createTask(
   };
   if (t.createdAt) task.createdAt = task.updatedAt = t.createdAt;
   db.prepare(
-    `INSERT INTO tasks (id, title, notes, type, status, estimate_minutes, deadline, deadline_time, priority, optional, planned_date, project, created_at, updated_at, completed_at, source)
-     VALUES (@id, @title, @notes, @type, @status, @estimateMinutes, @deadline, @deadlineTime, @priority, @optionalInt, @plannedDate, @project, @createdAt, @updatedAt, @completedAt, @source)`,
+    `INSERT INTO tasks (id, title, notes, type, status, estimate_minutes, deadline, deadline_time, priority, optional, planned_date, project, project_id, milestone_id, created_at, updated_at, completed_at, source)
+     VALUES (@id, @title, @notes, @type, @status, @estimateMinutes, @deadline, @deadlineTime, @priority, @optionalInt, @plannedDate, @project, @projectId, @milestoneId, @createdAt, @updatedAt, @completedAt, @source)`,
   ).run({
     ...task,
     optionalInt: task.optional ? 1 : 0,
@@ -594,7 +628,7 @@ export function updateTask(db: DB, id: string, patch: Partial<Task>): Task | nul
   }
   db.prepare(
     `UPDATE tasks SET title=@title, notes=@notes, type=@type, status=@status, estimate_minutes=@estimateMinutes,
-     deadline=@deadline, deadline_time=@deadlineTime, priority=@priority, optional=@optionalInt, planned_date=@plannedDate, project=@project, updated_at=@updatedAt, completed_at=@completedAt,
+     deadline=@deadline, deadline_time=@deadlineTime, priority=@priority, optional=@optionalInt, planned_date=@plannedDate, project=@project, project_id=@projectId, milestone_id=@milestoneId, updated_at=@updatedAt, completed_at=@completedAt,
      actual_minutes=@actualMinutes, spent_minutes=@spentMinutes, timer_started_at=@timerStartedAt, rollover_count=@rolloverCount WHERE id=@id`,
   ).run({ ...next, deadlineTime: next.deadline ? next.deadlineTime : null, optionalInt: next.optional ? 1 : 0, steps: undefined });
   return next;
@@ -861,7 +895,7 @@ export function saveProposal(db: DB, p: Proposal) {
     p.date,
     p.kind,
     p.basePlanVersion,
-    JSON.stringify({ plan: p.plan, taskChanges: p.taskChanges, contextSuggestions: p.contextSuggestions, warnings: p.warnings }),
+    JSON.stringify({ plan: p.plan, taskChanges: p.taskChanges, contextSuggestions: p.contextSuggestions, warnings: p.warnings, projectPlan: p.projectPlan ?? null }),
   );
 }
 

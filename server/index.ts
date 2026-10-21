@@ -66,6 +66,7 @@ import { dayHistory } from "./history.js";
 import { ackPush, deliverByPush, sendTest, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe, vapidPublicKey } from "./push.js";
 import { cancelReminder, completeReminder, createReminder, editReminder, snoozeReminder, tickReminders } from "./reminders.js";
 import { ActionRequest, runAction, setTaskFields, undoAction } from "./commands.js";
+import { linkTask, setMilestoneStatus, setProjectStatus } from "./projects.js";
 import { addDays, isValidDate, isValidTime, isValidTimeZone, localNow } from "./time.js";
 import { validateMeeting, validatePlanDraft } from "./validate.js";
 
@@ -364,6 +365,8 @@ const TaskFields = z.object({
   deadlineTime: z.string().refine(isValidTime, "Use HH:MM").nullable(),
   priority: z.enum(["high", "normal", "low"]),
   optional: z.boolean(),
+  projectId: z.string().nullable(),
+  milestoneId: z.string().nullable(),
   plannedDate: z.string().refine(isValidDate, "Use YYYY-MM-DD").nullable(),
   project: z.string().max(200).nullable(),
   actualMinutes: z.number().int().positive().max(24 * 60).nullable(),
@@ -374,7 +377,11 @@ app.post(
   h((req, res) => {
     const c = ctx(req);
     const body = parse(TaskFields.partial().required({ title: true }), req.body);
-    const task = createTask(c.db, { ...body, source: "user" });
+    const { projectId, milestoneId, ...fields } = body;
+    const task = c.db.transaction(() => {
+      const t = createTask(c.db, { ...fields, source: "user" });
+      return projectId ? linkTask(c.db, t.id, projectId, milestoneId ?? null) : t;
+    })();
     res.json({ state: state(req, c), task });
   }),
 );
@@ -513,6 +520,28 @@ app.post(
 app.post("/api/push/unsubscribe", h((req, res) => { const c = ctx(req); const b = parse(z.object({ endpoint: z.string() }), req.body); pushUnsubscribe(getDb("personal"), b.endpoint); res.json({ state: state(req, c) }); }));
 app.post("/api/push/test", h(async (req, res) => { const c = ctx(req); const n = await sendTest(getDb("personal")); res.json({ state: state(req, c), sent: n }); }));
 app.post("/api/push/ack", h((req, res) => { ackPush(getDb("personal")); res.json({ ok: true }); }));
+
+// ---------- projects ----------
+
+app.post(
+  "/api/projects/:id/status",
+  h((req, res) => {
+    const c = ctx(req);
+    const b = parse(z.object({ status: z.enum(["active", "paused", "completed", "archived"]) }), req.body);
+    setProjectStatus(c.db, String(req.params.id), b.status);
+    res.json({ state: state(req, c) });
+  }),
+);
+
+app.post(
+  "/api/milestones/:id/status",
+  h((req, res) => {
+    const c = ctx(req);
+    const b = parse(z.object({ status: z.enum(["open", "done"]) }), req.body);
+    setMilestoneStatus(c.db, String(req.params.id), b.status);
+    res.json({ state: state(req, c) });
+  }),
+);
 
 /** Undo from a receipt (toast or chat). */
 app.post(

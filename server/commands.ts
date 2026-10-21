@@ -1,11 +1,12 @@
 import { z } from "zod";
-import type { Receipt, Task, TaskPriority } from "../shared/types.js";
+import type { ProjectStatus, Receipt, Task, TaskPriority } from "../shared/types.js";
 import { createTask, currentPlan, DB, getSetting, getTask, listTasks, newId, setSetting, updateTask } from "./db.js";
 import { UserFacingError } from "./errors.js";
 import { removeTaskFromPlan, rescheduleTask } from "./planOps.js";
 import { finishTask, reportSession, startTimer, stopTimer, type Viewer } from "./timer.js";
 import { addDays, isValidDate, isValidTime, localNow } from "./time.js";
 import { findDuplicate } from "./validate.js";
+import { getProject, linkTask, setMilestoneStatus, setProjectStatus } from "./projects.js";
 import { cancelReminder, completeReminder, createReminder, dropAnchoredForTask, editReminder, reanchorForTask, snoozeReminder, type ReminderTime } from "./reminders.js";
 
 /**
@@ -19,7 +20,7 @@ export interface CommandCtx {
 }
 
 export type TaskFieldPatch = Partial<
-  Pick<Task, "title" | "notes" | "estimateMinutes" | "deadline" | "deadlineTime" | "plannedDate" | "priority" | "optional" | "status" | "project" | "type">
+  Pick<Task, "title" | "notes" | "estimateMinutes" | "deadline" | "deadlineTime" | "plannedDate" | "priority" | "optional" | "status" | "project" | "type" | "projectId" | "milestoneId">
 >;
 
 export function hasBlocks(db: DB, taskId: string, date: string): boolean {
@@ -51,6 +52,14 @@ export function setTaskFields(db: DB, id: string, body: TaskFieldPatch, ctx: Com
       patch = rest;
     }
     if (patch.deadline === null) patch = { ...patch, deadlineTime: null };
+    // Linking to a project goes through the same checks as the chat action.
+    const newProject = patch.projectId !== undefined ? patch.projectId : cur.projectId;
+    const newMilestone = patch.projectId === null ? null : patch.milestoneId !== undefined ? patch.milestoneId : cur.milestoneId;
+    if (patch.projectId !== undefined || patch.milestoneId !== undefined) {
+      if (newProject !== cur.projectId || newMilestone !== cur.milestoneId) linkTask(db, id, newProject, newMilestone);
+      const { projectId: _p, milestoneId: _m, project: _l, ...rest } = patch;
+      patch = patch.project !== undefined && newProject === cur.projectId && !newProject ? { ...rest, project: patch.project } : rest;
+    }
     const t = updateTask(db, id, patch);
     if (!t) throw new UserFacingError("Task not found.", 404, "not_found");
     // Reminders that count down to this task's deadline follow it (or go if it is done).
@@ -71,9 +80,11 @@ export function setTaskFields(db: DB, id: string, body: TaskFieldPatch, ctx: Com
 // ---------- chat actions ----------
 
 export const ActionRequest = z.object({
-  type: z.enum(["start", "pause", "finish", "report_time", "set_priority", "set_optional", "set_deadline", "move_day", "reopen", "create_reminder", "edit_reminder", "complete_reminder", "cancel_reminder", "snooze_reminder"]),
+  type: z.enum(["start", "pause", "finish", "report_time", "set_priority", "set_optional", "set_deadline", "move_day", "reopen", "create_reminder", "edit_reminder", "complete_reminder", "cancel_reminder", "snooze_reminder", "pause_project", "resume_project", "complete_project", "archive_project", "complete_milestone", "reopen_milestone", "link_task"]),
   task_id: z.string().optional().default(""),
   reminder_id: z.string().optional().default(""),
+  project_id: z.string().optional().default(""),
+  milestone_id: z.string().optional().default(""),
   title: z.string().optional().default(""),
   /** create_reminder: count from the task's deadline (whole days / minutes before). */
   offset_days: z.number().int().min(0).max(365).optional().default(0),
@@ -103,6 +114,9 @@ const clock = (t: string) => {
 type UndoRecord =
   | { kind: "restore"; taskId: string; patch: Partial<Task> }
   | { kind: "cancel_reminder"; id: string }
+  | { kind: "project_status"; id: string; status: ProjectStatus }
+  | { kind: "milestone_status"; id: string; status: "open" | "done" }
+  | { kind: "link"; taskId: string; projectId: string | null; milestoneId: string | null }
   | { kind: "delete"; taskIds: string[] };
 
 function saveUndo(db: DB, rec: UndoRecord): string {
@@ -124,6 +138,18 @@ export function undoAction(db: DB, undoId: string, ctx: CommandCtx): string {
       for (const d of [now.date, addDays(now.date, 1)]) removeTaskFromPlan(db, d, id, "Undone.");
     }
     return rec.taskIds.length === 1 ? "Removed." : `Removed ${rec.taskIds.length} tasks.`;
+  }
+  if (rec.kind === "project_status") {
+    setProjectStatus(db, rec.id, rec.status);
+    return "Undone.";
+  }
+  if (rec.kind === "milestone_status") {
+    setMilestoneStatus(db, rec.id, rec.status);
+    return "Undone.";
+  }
+  if (rec.kind === "link") {
+    linkTask(db, rec.taskId, rec.projectId, rec.milestoneId);
+    return "Undone.";
   }
   if (rec.kind === "cancel_reminder") {
     cancelReminder(db, rec.id, ctx.tz);
@@ -154,11 +180,11 @@ function runReminderAction(db: DB, a: ActionRequest, ctx: CommandCtx): Receipt {
       case "create_reminder": {
         if (!a.title.trim()) return { ok: false, text: "What should the reminder say?" };
         const when: ReminderTime =
-          a.from_deadline && a.task_id
-            ? { anchor: { kind: "task_deadline", id: a.task_id, offsetMinutes: a.offset_minutes || a.offset_days * 1440, atTime: a.time || null } }
+          a.from_deadline && (a.task_id || a.project_id)
+            ? { anchor: { kind: a.task_id ? ("task_deadline" as const) : ("project_target" as const), id: a.task_id || a.project_id, offsetMinutes: a.offset_minutes || a.offset_days * 1440, atTime: a.time || null } }
             : { date: a.date || now.date, time: a.time || null };
         if (!a.from_deadline && !a.date) return { ok: false, text: "Which day should I remind you?" };
-        const { reminder, created } = createReminder(db, { title: a.title, taskId: a.task_id || null, when, source: "nikki" }, ctx.tz);
+        const { reminder, created } = createReminder(db, { title: a.title, taskId: a.task_id || null, projectId: a.project_id || null, when, source: "nikki" }, ctx.tz);
         if (!created) return { ok: true, text: `You already have that reminder: ${label(reminder.title)} ${fmtWhen(reminder, now.date, tomorrow)}.` };
         return { ok: true, text: `Reminder set: ${label(reminder.title)} ${fmtWhen(reminder, now.date, tomorrow)}.`, undoId: saveUndo(db, { kind: "cancel_reminder", id: reminder.id }) };
       }
@@ -185,8 +211,46 @@ function runReminderAction(db: DB, a: ActionRequest, ctx: CommandCtx): Receipt {
   }
 }
 
+function runProjectAction(db: DB, a: ActionRequest): Receipt {
+  const clipT = (t: string) => `“${clip(t)}”`;
+  try {
+    if (a.type === "link_task") {
+      const task = getTask(db, a.task_id);
+      if (!task) return { ok: false, text: "That task wasn't found." };
+      const before = { projectId: task.projectId, milestoneId: task.milestoneId };
+      if (!a.project_id) {
+        linkTask(db, task.id, null, null);
+        return { ok: true, text: `Took ${clipT(task.title)} out of its project.`, taskId: task.id, undoId: saveUndo(db, { kind: "link", taskId: task.id, ...before }) };
+      }
+      const p = linkTask(db, task.id, a.project_id, a.milestone_id || null);
+      return { ok: true, text: `Linked ${clipT(task.title)} to ${clipT(p.project ?? "the project")}.`, taskId: task.id, undoId: saveUndo(db, { kind: "link", taskId: task.id, ...before }) };
+    }
+    if (a.type === "complete_milestone" || a.type === "reopen_milestone") {
+      const row = db.prepare("SELECT status, title FROM milestones WHERE id = ?").get(a.milestone_id) as { status: "open" | "done"; title: string } | undefined;
+      if (!row) return { ok: false, text: "That milestone wasn't found." };
+      const next = a.type === "complete_milestone" ? "done" : "open";
+      if (row.status === next) return { ok: true, text: `${clipT(row.title)} is already ${next === "done" ? "done" : "open"}.` };
+      const undoId = saveUndo(db, { kind: "milestone_status", id: a.milestone_id, status: row.status });
+      setMilestoneStatus(db, a.milestone_id, next);
+      return { ok: true, text: next === "done" ? `Milestone done: ${clipT(row.title)}.` : `Reopened ${clipT(row.title)}.`, undoId };
+    }
+    const p = getProject(db, a.project_id);
+    if (!p) return { ok: false, text: "That project wasn't found." };
+    const status: ProjectStatus = a.type === "pause_project" ? "paused" : a.type === "resume_project" ? "active" : a.type === "complete_project" ? "completed" : "archived";
+    if (p.status === status) return { ok: true, text: `${clipT(p.title)} is already ${status}.` };
+    const undoId = saveUndo(db, { kind: "project_status", id: p.id, status: p.status });
+    setProjectStatus(db, p.id, status);
+    const verb = { paused: "Paused", active: "Resumed", completed: "Marked complete:", archived: "Archived" }[status];
+    return { ok: true, text: `${verb} ${clipT(p.title)}.`, undoId };
+  } catch (e) {
+    if (e instanceof UserFacingError) return { ok: false, text: `Not done: ${e.message}` };
+    throw e;
+  }
+}
+
 export function runAction(db: DB, a: ActionRequest, ctx: CommandCtx): Receipt {
   if (a.type.endsWith("_reminder")) return runReminderAction(db, a, ctx);
+  if (a.type.endsWith("_project") || a.type.endsWith("_milestone") || a.type === "link_task") return runProjectAction(db, a);
   const task = getTask(db, a.task_id);
   if (!task) return { ok: false, text: "That task wasn't found." };
   const label = `“${clip(task.title)}”`;

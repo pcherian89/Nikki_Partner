@@ -155,12 +155,12 @@ export function CheckSheet({ session, title, actions, onClose }: { session: Work
 
 // ---------- add a task ----------
 
-export function AddTask({ actions, plannedDate, placeholder }: { actions: AppActions; plannedDate: string | null; placeholder?: string }) {
+export function AddTask({ actions, plannedDate, placeholder, projectId }: { actions: AppActions; plannedDate: string | null; placeholder?: string; projectId?: string }) {
   const [title, setTitle] = useState("");
   const submit = async () => {
     const t = title.trim();
     if (!t) return;
-    const ok = await actions.mutate("POST", "/api/tasks", { title: t, plannedDate });
+    const ok = await actions.mutate("POST", "/api/tasks", { title: t, plannedDate, ...(projectId ? { projectId } : {}) });
     if (ok) setTitle("");
   };
   return (
@@ -196,6 +196,7 @@ export function TaskMetaChips({ task, state, plan }: { task: Task; state: AppSta
     <span className="task-meta">
       {task.priority === "high" && <span className="tag">High</span>}
       {task.priority === "low" && <span className="muted small">Low priority</span>}
+      {task.projectId && state.projects.find((p) => p.id === task.projectId) && <span className="tag subtle project-chip">{state.projects.find((p) => p.id === task.projectId)!.title}</span>}
       {task.optional && <span className="tag subtle">If time allows</span>}
       {blocks[0] && (
         <span className="muted small">

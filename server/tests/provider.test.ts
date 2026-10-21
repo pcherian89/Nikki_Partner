@@ -84,7 +84,7 @@ test("schema reply with empty-string/zero placeholders parses to nulls", () => {
   assert.equal(parsed.availability, null);
 });
 
-test("schema stays small: few anyOf unions", () => {
+test("schema (sent as instructions) stays modest: few anyOf unions", () => {
   const anyOfs = JSON.stringify(RESPONSE_JSON_SCHEMA).split('"anyOf"').length - 1;
-  assert.ok(anyOfs <= 1, `anyOf count ${anyOfs}`);
+  assert.ok(anyOfs <= 4, `anyOf count ${anyOfs}`);
 });

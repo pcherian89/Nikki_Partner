@@ -42,8 +42,9 @@ import {
 import { dayHistory } from "./history.js";
 import { buildFacts, computeCarryovers, computeDays, computeTaskMeta, remainingEffort, suggestNext } from "./derived.js";
 import { describeTimer, type Viewer } from "./timer.js";
-import { activeReminders, cancelForDeletedTask } from "./reminders.js";
+import { activeReminders, cancelForDeletedTask, reanchorForProject } from "./reminders.js";
 import { pushStatus } from "./push.js";
+import { applyProjectDraft, getProject, projectViews, validateProjectDraft } from "./projects.js";
 import { freeSegments } from "./scheduler.js";
 import { currentBuildId } from "./build.js";
 import { getProvider } from "./provider/index.js";
@@ -131,6 +132,7 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined, 
       return { taskId: d.taskId, title: d.title, startedAt: d.startedAt, minutes: d.minutes, doubt: d.doubt };
     })(),
     checks: listUnverifiedSessions(db),
+    projects: projectViews(db, tasks, now.date),
     reminders: activeReminders(db, tz),
     notifications: pushStatus(db, viewer.clientId),
     taskMeta,
@@ -332,8 +334,16 @@ export function confirmProposal(
         throw e;
       }
     }
+    let projectId: string | null = null;
+    if (p.projectPlan) {
+      const errs = validateProjectDraft(p.projectPlan, { today: now.date, existing: p.projectPlan.projectId ? getProject(db, p.projectPlan.projectId) : null });
+      if (errs.length) throw new UserFacingError("This project plan doesn't pass the checks.", 422, "invalid_project", errs);
+      const r = applyProjectDraft(db, p.projectPlan, { source: opts.source === "demo" ? "demo" : "nikki", tasksSource: opts.source });
+      projectId = r.projectId;
+      if (r.changedTarget) reanchorForProject(db, r.projectId, opts.timezone);
+    }
     setProposalStatus(db, p.id, "confirmed");
-    return { alreadyConfirmed: false };
+    return { alreadyConfirmed: false, projectId };
   })();
 }
 

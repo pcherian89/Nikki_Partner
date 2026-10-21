@@ -152,6 +152,7 @@ const empty = (): ModelResponse => ({
   captured_items: [],
   task_updates: [],
   actions: [],
+  project_plan: null,
   meetings: [],
   context_updates: [],
   availability: null,

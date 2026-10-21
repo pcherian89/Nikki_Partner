@@ -1,5 +1,6 @@
 import type { Reminder } from "../shared/types.js";
 import { clockIso, DB, getTask, newId } from "./db.js";
+import { getProject } from "./projects.js";
 import { UserFacingError } from "./errors.js";
 import { addDays, currentInstant, isValidDate, isValidTime, localNow, localToUtc } from "./time.js";
 
@@ -60,7 +61,7 @@ export function activeReminders(db: DB, tz: string): Reminder[] {
 
 export type ReminderTime =
   | { date: string; time?: string | null }
-  | { anchor: { kind: "task_deadline"; id: string; offsetMinutes?: number; offsetDays?: number; atTime?: string | null } };
+  | { anchor: { kind: "task_deadline" | "project_target"; id: string; offsetMinutes?: number; offsetDays?: number; atTime?: string | null } };
 
 export interface ReminderInput {
   title: string;
@@ -72,8 +73,16 @@ export interface ReminderInput {
 
 /** The moment a deadline-anchored reminder fires. */
 function anchorInstant(db: DB, a: NonNullable<Reminder["anchor"]>, tz: string): Date {
-  const task = a.kind === "task_deadline" ? getTask(db, a.id) : null;
-  if (!task || !task.deadline) throw new UserFacingError("That task has no deadline to count from. Set a deadline first.", 400, "no_deadline");
+  const task =
+    a.kind === "task_deadline"
+      ? getTask(db, a.id)
+      : (() => {
+          const p = getProject(db, a.id);
+          return p && p.targetDate ? { deadline: p.targetDate, deadlineTime: null } : null;
+        })();
+  if (!task || !task.deadline) {
+    throw new UserFacingError(a.kind === "task_deadline" ? "That task has no deadline to count from. Set a deadline first." : "That project has no target date to count from. Set one first.", 400, "no_deadline");
+  }
   // Whole days before: same time of day (default 09:00) that many days earlier. Otherwise minutes before the deadline time.
   if (a.offsetMinutes % 1440 === 0 && !(a.atTime == null && task.deadlineTime && a.offsetMinutes === 0)) {
     const days = a.offsetMinutes / 1440;
@@ -170,13 +179,29 @@ export function snoozeReminder(db: DB, id: string, minutes: number, tz: string):
   return getReminder(db, id, tz)!;
 }
 
+/** A project's target date moved: reminders counting down to it follow. */
+export function reanchorForProject(db: DB, projectId: string, tz: string) {
+  const rows = db.prepare("SELECT id, anchor FROM reminders WHERE status IN ('pending','due') AND anchor IS NOT NULL").all() as { id: string; anchor: string }[];
+  for (const r of rows) {
+    const a = JSON.parse(r.anchor) as NonNullable<Reminder["anchor"]>;
+    if (a.kind !== "project_target" || a.id !== projectId) continue;
+    try {
+      const at = anchorInstant(db, a, tz);
+      if (at.getTime() < currentInstant().getTime() - 60_000) db.prepare("UPDATE reminders SET status = 'cancelled', done_at = ? WHERE id = ?").run(clockIso(), r.id);
+      else db.prepare("UPDATE reminders SET remind_at = ?, status = 'pending', fired_at = NULL WHERE id = ?").run(at.toISOString(), r.id);
+    } catch {
+      db.prepare("UPDATE reminders SET status = 'cancelled', done_at = ? WHERE id = ?").run(clockIso(), r.id);
+    }
+  }
+}
+
 /** A task's deadline moved: deadline-anchored reminders follow it. If the new time is already past they are cancelled. */
 export function reanchorForTask(db: DB, taskId: string, tz: string): string[] {
   const rows = db.prepare("SELECT * FROM reminders WHERE status IN ('pending','due') AND anchor IS NOT NULL").all() as Row[];
   const notes: string[] = [];
   for (const r of rows) {
     const a = JSON.parse(r.anchor!) as NonNullable<Reminder["anchor"]>;
-    if (a.id !== taskId) continue;
+    if (a.kind !== "task_deadline" || a.id !== taskId) continue;
     try {
       const at = anchorInstant(db, a, tz);
       if (at.getTime() < currentInstant().getTime() - 60_000) {
@@ -196,7 +221,7 @@ export function reanchorForTask(db: DB, taskId: string, tz: string): string[] {
 /** A task was deleted or finished: reminders that only existed to count down to its deadline are no longer needed. */
 export function dropAnchoredForTask(db: DB, taskId: string) {
   const rows = db.prepare("SELECT id, anchor FROM reminders WHERE status IN ('pending','due') AND anchor IS NOT NULL").all() as { id: string; anchor: string }[];
-  for (const r of rows) if ((JSON.parse(r.anchor) as { id: string }).id === taskId) db.prepare("UPDATE reminders SET status = 'cancelled', done_at = ? WHERE id = ?").run(clockIso(), r.id);
+  for (const r of rows) if ((JSON.parse(r.anchor) as { id: string; kind: string }).id === taskId && (JSON.parse(r.anchor) as { kind: string }).kind === "task_deadline") db.prepare("UPDATE reminders SET status = 'cancelled', done_at = ? WHERE id = ?").run(clockIso(), r.id);
 }
 
 /** Linked reminders of a deleted task go with it (nothing should point at a task that isn't there). */

@@ -1,6 +1,8 @@
 import type {
   ChatMessage,
   Plan,
+  Project,
+  ProjectDraft,
   ContextSuggestion,
   Meeting,
   PlanBlock,
@@ -43,6 +45,7 @@ import { findDuplicate, freeMinutes, validateMeeting, validatePlanDraft } from "
 import { UserFacingError } from "./errors.js";
 import { ActionRequest, recordCreated, runActions } from "./commands.js";
 import { markProvisional, pinnedToKeep } from "./planOps.js";
+import { getProject, listProjects, projectViews, validateProjectDraft } from "./projects.js";
 import { activeReminders } from "./reminders.js";
 import { buildFacts, computeTaskMeta, deadlinesThisWeek, suggestNext } from "./derived.js";
 import type { Viewer } from "./timer.js";
@@ -69,6 +72,7 @@ interface Resolved {
   notes: string[];
   refMap: Map<string, string>;
   actions: ActionRequest[];
+  projectPlan: ProjectDraft | null;
 }
 
 const MAX_CAPTURES = 25;
@@ -87,6 +91,24 @@ function modelFacts(db: DB, tz: string, profile: ReturnType<typeof getProfile>, 
   const atRisk = open.filter((t) => ["at_risk", "overdue"].includes(meta[t.id]?.deadlineStatus ?? "")).map((t) => ({ task_id: t.id, status: meta[t.id].deadlineStatus, short_by_minutes: meta[t.id].shortByMinutes ?? null }));
   const running = tasks.find((t) => t.timerStartedAt);
   return {
+    projects: (() => {
+      const all = projectViews(db, tasks, f.today);
+      const live = all.filter((p) => p.status === "active" || p.status === "paused");
+      return {
+        active_and_paused: live.slice(0, 6).map((p) => ({
+          id: p.id,
+          title: p.title,
+          goal: p.goal.slice(0, 160),
+          status: p.status,
+          target_date: p.targetDate,
+          milestones: p.milestones.slice(0, 10).map((m) => ({ id: m.id, title: m.title, target: m.targetDate, status: m.status })),
+          progress: { tasks_done: p.progress.tasksDone, tasks_total: p.progress.tasksTotal, milestones_done: p.progress.milestonesDone, milestones_total: p.progress.milestonesTotal, minutes_recorded: p.progress.workedMinutes, unassigned_open_tasks: p.progress.unassigned },
+          overdue_milestones: p.progress.overdueMilestoneIds,
+          next_actions: p.progress.nextActionIds.map((id) => ({ task_id: id, title: tasks.find((t) => t.id === id)?.title })),
+        })),
+        other_projects: all.length - live.length,
+      };
+    })(),
     reminders: activeReminders(db, tz).slice(0, 15).map((r) => ({ id: r.id, title: r.title, when: `${r.localDate} ${r.localTime}`, status: r.status, ...(r.taskId ? { task_id: r.taskId } : {}) })),
     running_timer: running ? { task_id: running.id, title: running.title } : null,
     urgent_first: next ? { task_id: next.taskId, title: title(next.taskId), reason: next.reason } : null,
@@ -124,9 +146,12 @@ export function resolveResponse(
     planOn?: (date: string) => Plan | null;
     /** What the user typed, to check that an estimate was really stated by them. */
     userText?: string;
+    projectOn?: (id: string) => Project | null;
+    projectTitles?: string[];
   },
 ): Resolved {
   const notes: string[] = [];
+  let planErrors: string[] = [];
   const refMap = new Map<string, string>();
   const byId = new Map(ctx.tasks.map((t) => [t.id, t]));
   const newTasks: Task[] = [];
@@ -155,6 +180,8 @@ export function resolveResponse(
       status: "open",
       estimateMinutes: c.estimate_minutes && statedDuration(ctx.userText) ? c.estimate_minutes : null,
       deadline,
+      projectId: null,
+      milestoneId: null,
       deadlineTime: deadline && c.deadline_time && isValidTime(c.deadline_time) ? c.deadline_time : null,
       priority: c.priority,
       optional: c.optional,
@@ -216,7 +243,6 @@ export function resolveResponse(
     .map((c) => ({ id: newId("cs"), field: c.field, action: c.action, value: c.value.trim(), reason: c.reason, status: "pending" }));
 
   let draft: PlanDraft | null = null;
-  let planErrors: string[] = [];
   if (resp.plan && ctx.kind !== "wrapup") {
     const p = resp.plan;
     const resolve = (ref: string | null) => (ref ? (refMap.get(ref) ?? ref) : null);
@@ -278,8 +304,31 @@ export function resolveResponse(
       if (t?.status === "done") planErrors.push(`"${t.title}" is already completed and shouldn't be scheduled.`);
     }
   }
+  // A project proposal: validated here, saved only if the user confirms. Estimates must have been stated by the user.
+  let projectPlan: ProjectDraft | null = null;
+  if (resp.project_plan) {
+    const pp = resp.project_plan;
+    const dateOk = (d: string | null) => (d && isValidDate(d) ? d : d ? d : null);
+    projectPlan = {
+      projectId: pp.project_id,
+      title: pp.title.trim(),
+      goal: pp.goal ?? "",
+      targetDate: dateOk(pp.target_date),
+      assumptions: pp.assumptions,
+      dependencies: pp.dependencies,
+      milestones: pp.milestones.map((m) => ({ id: m.id, ref: m.ref, title: m.title.trim(), targetDate: dateOk(m.target_date), remove: m.remove })),
+      tasks: pp.tasks.map((t) => ({ ref: t.ref, title: t.title.trim(), milestoneRef: t.milestone_ref, priority: t.priority, estimateMinutes: t.estimate_minutes && statedDuration(ctx.userText) ? t.estimate_minutes : null })),
+      reason: pp.reason,
+    };
+    const existing = projectPlan.projectId ? (ctx.projectOn?.(projectPlan.projectId) ?? null) : null;
+    for (const e of validateProjectDraft(projectPlan, { today: ctx.date, existing })) planErrors.push(`Project plan: ${e}`);
+    // Don't duplicate an existing project when the model proposes it as new.
+    if (!projectPlan.projectId && ctx.projectTitles?.some((t) => t.toLowerCase() === projectPlan!.title.toLowerCase())) {
+      planErrors.push(`Project plan: a project called "${projectPlan.title}" already exists — revise it with its project_id instead of creating another.`);
+    }
+  }
   const actions = resp.actions.map((a) => ({ ...a, task_id: refMap.get(a.task_id) ?? a.task_id }));
-  return { newTasks, newMeetings, draft, planErrors, taskChanges, contextSuggestions, notes, refMap, actions };
+  return { newTasks, newMeetings, draft, planErrors, taskChanges, contextSuggestions, notes, refMap, actions, projectPlan };
 }
 
 function parseModelJson(text: string): { ok: true; value: ModelResponse } | { ok: false; errors: string[] } {
@@ -340,6 +389,8 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
       hasPlanToday: !!plan,
       planOn: (date: string) => currentPlan(db, date),
       userText: input.text,
+      projectOn: (id: string) => getProject(db, id),
+      projectTitles: listProjects(db).map((p) => p.title),
     };
 
     let resp: ModelResponse;
@@ -429,9 +480,10 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
         resolved.notes.push(...resolved.planErrors.map((e) => `Plan check: ${e}`));
         resp = {
           ...resp,
-          message: `${resp.message}\n\nI couldn't produce a schedule that passes the app's checks (${resolved.planErrors[0]}). Could you tell me more about your available time, or should I try again?`,
+          message: `${resp.message}\n\nI couldn't produce a plan that passes the app's checks (${resolved.planErrors[0]}). Could you tell me more about your available time, or should I try again?`,
         };
         resolved.draft = null;
+        resolved.projectPlan = null;
       }
     }
 
@@ -486,7 +538,7 @@ function persistTurn(
     // Newer suggestions win; carried-over pending ones are kept only for other fields.
     const carried = (a.pending?.contextSuggestions ?? []).filter((c) => c.status === "pending");
     resolved.contextSuggestions = filterSuggestions(db, getProfile(db), [...carried, ...resolved.contextSuggestions]);
-    if (draft || resolved.taskChanges.length || resolved.contextSuggestions.length) {
+    if (draft || resolved.projectPlan || resolved.taskChanges.length || resolved.contextSuggestions.length) {
       supersedePending(db);
       proposal = {
         id: newId("pr"),
@@ -499,6 +551,7 @@ function persistTurn(
         taskChanges: resolved.taskChanges,
         contextSuggestions: resolved.contextSuggestions,
         warnings: resolved.notes,
+        projectPlan: resolved.projectPlan,
       };
       saveProposal(db, proposal);
     }

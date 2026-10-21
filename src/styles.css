@@ -2942,3 +2942,66 @@ details summary {
   gap: 8px;
   align-items: baseline;
 }
+
+/* ---------- Stage E: projects ---------- */
+.projects-card {
+  margin-bottom: 14px;
+}
+.project-list {
+  margin-top: 8px;
+}
+.project-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  color: inherit;
+  font: inherit;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.project-list li:first-child .project-row {
+  border-top: 0;
+}
+.project-row:hover strong {
+  color: var(--accent);
+}
+.project-row-main {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.project-chip {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.milestone-list > li {
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+}
+.milestone-list > li:first-child {
+  border-top: 0;
+}
+.project-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0 10px;
+}
+.project-preview-title {
+  font-size: 18px;
+}
+.project-preview-list {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+.project-preview-list li {
+  margin: 2px 0;
+}

@@ -19,7 +19,7 @@ const refWhy = { type: "object", additionalProperties: false, required: ["task_r
 export const RESPONSE_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["message", "questions", "quick_replies", "captured_items", "task_updates", "actions", "meetings", "context_updates", "plan"],
+  required: ["message", "questions", "quick_replies", "captured_items", "task_updates", "actions", "meetings", "context_updates", "project_plan", "plan"],
   properties: {
     message: str,
     questions: { type: "array", items: str },
@@ -96,6 +96,43 @@ export const RESPONSE_JSON_SCHEMA = {
         required: ["date", "title", "start", "end"],
         properties: { date: str, title: str, start: str, end: str },
       },
+    },
+    project_plan: {
+      anyOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["project_id", "title", "goal", "target_date", "assumptions", "dependencies", "milestones", "tasks", "reason"],
+          properties: {
+            project_id: str,
+            title: str,
+            goal: str,
+            target_date: str,
+            assumptions: { type: "array", items: str },
+            dependencies: { type: "array", items: str },
+            milestones: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["id", "ref", "title", "target_date", "remove"],
+                properties: { id: str, ref: str, title: str, target_date: str, remove: { type: "boolean" } },
+              },
+            },
+            tasks: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["ref", "title", "milestone_ref", "priority", "estimate_minutes"],
+                properties: { ref: str, title: str, milestone_ref: str, priority: { type: "string", enum: ["high", "normal", "low"] }, estimate_minutes: int },
+              },
+            },
+            reason: str,
+          },
+        },
+        { type: "null" },
+      ],
     },
     context_updates: {
       type: "array",
@@ -200,6 +237,29 @@ export const ModelResponse = z.object({
       reason: z.string(),
     }),
   ),
+  project_plan: z
+    .object({
+      project_id: optStr.optional().default(null),
+      title: z.string().min(1).max(200),
+      goal: optStr.optional().default(null),
+      target_date: optStr.optional().default(null),
+      assumptions: z.array(z.string().max(300)).max(10).optional().default([]),
+      dependencies: z.array(z.string().max(300)).max(10).optional().default([]),
+      milestones: z
+        .array(z.object({ id: optStr.optional().default(null), ref: z.string().min(1), title: z.string().min(1).max(200), target_date: optStr.optional().default(null), remove: z.boolean().optional().default(false) }))
+        .max(20)
+        .optional()
+        .default([]),
+      tasks: z
+        .array(z.object({ ref: z.string().min(1), title: z.string().min(1).max(300), milestone_ref: optStr.optional().default(null), priority: z.enum(["high", "normal", "low"]).optional().default("normal"), estimate_minutes: optMinutes.optional().default(null) }))
+        .max(60)
+        .optional()
+        .default([]),
+      reason: z.string().max(600).optional().default(""),
+    })
+    .nullable()
+    .optional()
+    .default(null),
   availability: z
     .object({
       window_start: z.string().nullable(),

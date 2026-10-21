@@ -24,6 +24,9 @@ export interface Task {
   /** The day the user intends to work on it (rough weekly planning). */
   plannedDate: string | null;
   project: string | null;
+  /** The long-term project (and milestone) this task belongs to, if any. */
+  projectId: string | null;
+  milestoneId: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -291,6 +294,8 @@ export interface Proposal {
   taskChanges: TaskChange[];
   contextSuggestions: ContextSuggestion[];
   warnings: string[];
+  /** A project to create or revise (confirmed with the same Confirm as a plan). */
+  projectPlan?: ProjectDraft | null;
 }
 
 /** The app's own record of one chat action: what really happened, whatever the model said. */
@@ -356,6 +361,7 @@ export interface AppState {
   running: RunningTimer | null;
   /** Uncertain timer time waiting for the user to confirm or correct. */
   checks: WorkSession[];
+  projects: ProjectView[];
   reminders: Reminder[];
   notifications: NotificationStatus;
   taskMeta: Record<string, TaskMeta>;
@@ -435,4 +441,64 @@ export interface NotificationStatus {
   verified: boolean;
   lastTestAt: string | null;
   lastAckAt: string | null;
+}
+
+export type ProjectStatus = "active" | "paused" | "completed" | "archived";
+
+export interface Milestone {
+  id: string;
+  projectId: string;
+  title: string;
+  targetDate: string | null;
+  status: "open" | "done";
+  position: number;
+  doneAt: string | null;
+}
+
+export interface Project {
+  id: string;
+  title: string;
+  goal: string;
+  targetDate: string | null;
+  status: ProjectStatus;
+  assumptions: string[];
+  dependencies: string[];
+  source: "user" | "nikki" | "demo";
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  milestones: Milestone[];
+}
+
+/** Progress comes only from real task and milestone states, plus recorded time. Never an estimated percentage. */
+export interface ProjectProgress {
+  tasksTotal: number;
+  tasksDone: number;
+  milestonesTotal: number;
+  milestonesDone: number;
+  workedMinutes: number;
+  lastWorkedAt: string | null;
+  /** Open tasks in the project not yet assigned to a day. */
+  unassigned: number;
+  /** The next few things to work on (earliest open milestone first). */
+  nextActionIds: string[];
+  overdueMilestoneIds: string[];
+}
+
+export interface ProjectView extends Project {
+  progress: ProjectProgress;
+}
+
+/** A proposed new project, or a revision of an existing one. Nothing is saved until the user confirms. */
+export interface ProjectDraft {
+  /** Set when revising an existing project. */
+  projectId: string | null;
+  title: string;
+  goal: string;
+  targetDate: string | null;
+  assumptions: string[];
+  dependencies: string[];
+  milestones: { id: string | null; ref: string; title: string; targetDate: string | null; remove?: boolean }[];
+  tasks: { ref: string; title: string; milestoneRef: string | null; priority: TaskPriority; estimateMinutes: number | null }[];
+  reason: string;
 }

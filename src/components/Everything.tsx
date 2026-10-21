@@ -8,11 +8,13 @@ import { ActionSheet, MoveSheet } from "./MoveSheet";
 import { ActualTime } from "./DayRhythm";
 import { AutoTextarea } from "./AutoTextarea";
 import { dueLabel } from "./TaskList";
+import { ProjectPage, ProjectsSection } from "./Projects";
 
 export function Everything({ state, actions }: { state: AppState; actions: AppActions }) {
   const [title, setTitle] = useState("");
   const [type, setType] = useState<TaskType>("action");
   const complete = useCompletion(state, actions);
+  const [openProject, setOpenProject] = useState<string | null>(null);
   const live = state.tasks;
 
   const sections: { key: string; title: string; hint: string; items: Task[] }[] = [
@@ -29,11 +31,14 @@ export function Everything({ state, actions }: { state: AppState; actions: AppAc
     if (ok) setTitle("");
   };
 
+  if (openProject) return <ProjectPage state={state} actions={actions} projectId={openProject} onBack={() => setOpenProject(null)} />;
+
   return (
     <div className="page">
       <div className="page-head">
         <h1 className="h2">Everything</h1>
       </div>
+      <ProjectsSection state={state} actions={actions} onOpen={setOpenProject} />
       <form
         className="card add-row"
         onSubmit={(e) => {
@@ -100,6 +105,8 @@ function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppSta
     deadlineTime: task.deadlineTime ?? "",
     priority: task.priority,
     optional: task.optional,
+    projectId: task.projectId ?? "",
+    milestoneId: task.milestoneId ?? "",
     project: task.project ?? "",
   });
   const inPlan = state.plan?.blocks.some((b) => b.taskId === task.id);
@@ -113,6 +120,8 @@ function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppSta
       deadlineTime: f.deadline && f.deadlineTime ? f.deadlineTime : null,
       priority: f.priority,
       optional: f.optional,
+      projectId: f.projectId || null,
+      milestoneId: f.projectId ? f.milestoneId || null : null,
       project: f.project.trim() || null,
     });
     if (ok) setEditing(false);
@@ -259,8 +268,28 @@ function TaskRow({ task, state, actions, onToggle }: { task: Task; state: AppSta
             </label>
             <label className="field">
               <span>Project</span>
-              <input value={f.project} onChange={(e) => setF({ ...f, project: e.target.value })} />
+              <select value={f.projectId} onChange={(e) => setF({ ...f, projectId: e.target.value, milestoneId: "" })}>
+                <option value="">None</option>
+                {state.projects.filter((p) => p.status !== "archived").map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.title}
+                  </option>
+                ))}
+              </select>
             </label>
+            {f.projectId && (
+              <label className="field">
+                <span>Milestone</span>
+                <select value={f.milestoneId} onChange={(e) => setF({ ...f, milestoneId: e.target.value })}>
+                  <option value="">None</option>
+                  {state.projects.find((p) => p.id === f.projectId)?.milestones.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           <label className="check-line">
             <input type="checkbox" checked={f.optional} onChange={(e) => setF({ ...f, optional: e.target.checked })} />

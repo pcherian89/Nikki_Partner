@@ -5,6 +5,7 @@ import type { AppActions } from "../App";
 import { capacity, fmtDate, fmtDuration, fmtRange, taskById, toMin } from "../util";
 import { Avatar } from "./Avatar";
 import { DayBar } from "./DayBar";
+import { ProjectPlanPreview } from "./Projects";
 
 const FIELD_LABELS: Record<string, string> = {
   name: "Name",
@@ -108,6 +109,8 @@ export function ProposalCard({
       if (draft) {
         actions.toast({ text: "Plan confirmed.", action: { label: "View plan", run: onShowPlan } });
         onShowPlan();
+      } else if (proposal.projectPlan) {
+        actions.toast({ text: proposal.projectPlan.projectId ? "Project updated." : `Project saved: ${proposal.projectPlan.title}. Find it in Everything.` });
       } else actions.toast({ text: accepted.size === 1 ? "Done — change applied." : `Done — ${accepted.size} changes applied.` });
     } catch (e) {
       const err = e as ApiError;
@@ -161,6 +164,8 @@ export function ProposalCard({
       </div>
 
       {stale && <p className="error-text">This proposal is for an earlier day or an older plan. Ask Nikki for a fresh one.</p>}
+
+      {proposal.projectPlan && <ProjectPlanPreview draft={proposal.projectPlan} state={state} />}
 
       {draft && (
         <>
@@ -372,10 +377,10 @@ export function ProposalCard({
           </button>
         </div>
       )}
-      {(draft || proposal.taskChanges.length > 0) && !stale && (
+      {(draft || proposal.projectPlan || proposal.taskChanges.length > 0) && !stale && (
         <div className="row gap wrap proposal-actions">
           <button className="btn primary" onClick={confirm} disabled={busy}>
-            {busy ? "Saving…" : draft ? (edited ? "Confirm edited plan" : "Confirm plan") : proposal.taskChanges.length === 1 ? "Confirm" : "Confirm changes"}
+            {busy ? "Saving…" : draft ? (edited ? "Confirm edited plan" : "Confirm plan") : proposal.projectPlan ? (proposal.projectPlan.projectId ? "Confirm changes" : "Confirm project") : proposal.taskChanges.length === 1 ? "Confirm" : "Confirm changes"}
           </button>
           {edited && (
             <button
