@@ -2660,3 +2660,12 @@ details summary {
     justify-content: space-between;
   }
 }
+.storage-warning {
+  border: 1px solid rgba(240, 138, 126, 0.5);
+  background: rgba(240, 138, 126, 0.08);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}

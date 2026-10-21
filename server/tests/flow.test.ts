@@ -1009,3 +1009,26 @@ test("wrap-up and morning review can send unfinished work to a picked day", asyn
   const r = await api("POST", "/api/review", { decisions: [{ taskId: b.id, action: "date", date: "2026-10-12" }] });
   assert.equal(r.json.state.tasks.find((t: any) => t.id === b.id).plannedDate, "2026-10-12");
 });
+
+test("day bar: meetings + work + breaks + buffer + unscheduled always add up to the working window", async () => {
+  const { capacity } = await import("../../src/util.js");
+  const b = (start: string, end: string, kind: string) => ({ id: start, start, end, kind, taskId: null, meetingId: null, title: "" }) as any;
+  // The owner's case: 9–5, 6h 5m of work, 1h 15m of breaks, no meetings.
+  const c1 = capacity({
+    window: { start: "09:00", end: "17:00" },
+    workBudgetMinutes: 365,
+    blocks: [b("09:00", "11:00", "focus"), b("11:00", "11:30", "break"), b("11:30", "13:30", "task"), b("13:30", "14:15", "break"), b("14:15", "16:20", "task")],
+  });
+  assert.equal(c1.window, 480);
+  assert.equal(c1.work, 365);
+  assert.equal(c1.breaks, 75);
+  assert.equal(c1.meetings + c1.work + c1.breaks + c1.buffer + c1.open, c1.window);
+  // Overlapping meetings are counted once; meetings outside the window don't count.
+  const c2 = capacity({
+    window: { start: "09:00", end: "17:00" },
+    workBudgetMinutes: 0,
+    blocks: [b("10:00", "11:00", "meeting"), b("10:30", "11:30", "meeting"), b("16:30", "18:00", "meeting")],
+  });
+  assert.equal(c2.meetings, 90 + 30);
+  assert.equal(c2.meetings + c2.open, 480);
+});

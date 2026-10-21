@@ -233,6 +233,11 @@ export default function App() {
       </header>
 
       <main className="main">
+        {state.storageWarning && (
+          <div className="storage-warning" role="alert">
+            <strong>Data at risk.</strong> {state.storageWarning}
+          </div>
+        )}
         {view === "home" && <Welcome state={state} actions={actions} sendError={sendError?.message ?? null} />}
         {view === "today" &&
           (showWelcome ? (

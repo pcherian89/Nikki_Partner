@@ -228,6 +228,8 @@ export interface AppState {
   newDay: { lastPlanDate: string; unfinishedTaskIds: string[] } | null;
   messages: ChatMessage[];
   hasAnyData: boolean;
+  /** Set when the server's data isn't on permanent storage (it would be lost on the next update). */
+  storageWarning: string | null;
   drafts: TaskDraft[];
   /** Today's evening wrap-up, if done. */
   wrapUpToday: WrapUp | null;

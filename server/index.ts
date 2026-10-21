@@ -704,6 +704,8 @@ if (isMain) {
   app.listen(config.port, () => {
     console.log(`Nikki is running on http://localhost:${config.port}`);
     console.log(`  Personal data: ${dbPath("personal")}`);
+    if (config.movedIntoVolume) console.log(`  (DATABASE_PATH ${config.movedIntoVolume} is outside the volume, so the volume path is used instead.)`);
+    if (config.storageWarning) console.error(`  WARNING: ${config.storageWarning}`);
     console.log(`  Demo data:     ${dbPath("demo")}`);
     console.log(
       getProvider()

@@ -4,6 +4,7 @@ import { api, ApiError } from "../api";
 import type { AppActions } from "../App";
 import { capacity, fmtDate, fmtDuration, fmtRange, taskById, toMin } from "../util";
 import { Avatar } from "./Avatar";
+import { DayBar } from "./DayBar";
 
 const FIELD_LABELS: Record<string, string> = {
   name: "Name",
@@ -181,14 +182,8 @@ export function ProposalCard({
             ))}
           </div>
 
-          {cap && (
-            <div className="capacity small">
-              <span>{fmtDuration(cap.work)} of work</span>
-              <span>{fmtDuration(cap.available)} free {fmtRange(draft.window.start, draft.window.end)}</span>
-              {cap.breaks > 0 && <span>Breaks {fmtDuration(cap.breaks)}</span>}
-              {overBudget && <span className="warn">More work than the time you set ({fmtDuration(draft.workBudgetMinutes)})</span>}
-            </div>
-          )}
+          <DayBar plan={draft} title="The day" />
+          {overBudget && <p className="warn small">More work than the time you set ({fmtDuration(draft.workBudgetMinutes)}).</p>}
 
           {diff && diff.length > 0 && (
             <div className="diff">
