@@ -5,9 +5,9 @@ import type { AppActions } from "../App";
 import { fmtDate, fmtDuration } from "../util";
 import { DecisionRow, type MoveChoice } from "./MoveSheet";
 
-type WrapAction = "tomorrow" | "done" | "someday" | "drop";
-const WRAP_LABELS: Record<WrapAction, string> = { tomorrow: "Tomorrow", done: "Done", someday: "Someday", drop: "Delete" };
-const WRAP_TO_MOVE: Record<WrapAction, MoveChoice> = { tomorrow: "tomorrow", done: "done", someday: "someday", drop: "drop" };
+type WrapAction = "tomorrow" | "date" | "done" | "someday" | "drop";
+const WRAP_LABELS: Record<WrapAction, string> = { tomorrow: "Tomorrow", date: "Pick a day", done: "Done", someday: "Someday", drop: "Delete" };
+const WRAP_TO_MOVE: Record<WrapAction, MoveChoice> = { tomorrow: "tomorrow", date: "pick", done: "done", someday: "someday", drop: "drop" };
 
 function isToday(iso: string, tz: string, today: string) {
   try {
@@ -39,6 +39,7 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
   const done = doneTodayTasks(state);
   const open = unfinishedToday(state);
   const [decisions, setDecisions] = useState<Record<string, WrapAction>>(Object.fromEntries(open.map((t) => [t.id, "tomorrow"])));
+  const [dates, setDates] = useState<Record<string, string>>({});
   const [note, setNote] = useState(state.wrapUpToday?.note ?? "");
   const [reflect, setReflect] = useState(state.workspace === "demo" || state.liveAvailable);
   const [saving, setSaving] = useState(false);
@@ -50,7 +51,7 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
     setError(null);
     try {
       const r = await api("POST", "/api/wrapup", {
-        decisions: Object.entries(decisions).map(([taskId, action]) => ({ taskId, action })),
+        decisions: Object.entries(decisions).map(([taskId, action]) => ({ taskId, action, ...(action === "date" ? { date: dates[taskId] } : {}) })),
         note,
       });
       actions.setState(r.state);
@@ -112,10 +113,14 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
                 title={t.title}
                 value={decisions[t.id]}
                 labels={WRAP_LABELS}
-                choices={["tomorrow", "someday", "done", "drop"]}
+                choices={["tomorrow", "date", "someday", "done", "drop"]}
                 toMove={WRAP_TO_MOVE}
                 minDate={state.today}
-                onChange={(a) => setDecisions({ ...decisions, [t.id]: a })}
+                date={dates[t.id]}
+                onChange={(a, d) => {
+                  setDecisions({ ...decisions, [t.id]: a });
+                  if (d) setDates({ ...dates, [t.id]: d });
+                }}
               />
             ))}
           </ul>

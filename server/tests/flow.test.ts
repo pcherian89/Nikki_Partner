@@ -996,3 +996,16 @@ test("Nikki calendar feed: private link serves confirmed plans as valid iCalenda
   await api("POST", "/api/calendar-feed", { action: "disable" });
   assert.equal((await fetch(`${base}/cal/${reset.json.state.nikkiFeedToken}.ics`)).status, 404);
 });
+
+test("wrap-up and morning review can send unfinished work to a picked day", async () => {
+  const a = (await api("POST", "/api/tasks", { title: "Tender pack", plannedDate: "2026-10-05" })).json.task;
+  const b = (await api("POST", "/api/tasks", { title: "Sports night poster", plannedDate: "2026-10-05" })).json.task;
+  const w = await api("POST", "/api/wrapup", { decisions: [{ taskId: a.id, action: "date", date: "2026-10-09" }], note: "" });
+  assert.equal(w.status, 200, JSON.stringify(w.json));
+  assert.equal(w.json.state.tasks.find((t: any) => t.id === a.id).plannedDate, "2026-10-09");
+  process.env.NIKKI_FAKE_NOW = "2026-10-06T07:30:00Z";
+  const st = (await api("GET", "/api/state")).json.state;
+  assert.deepEqual(st.newDay.unfinishedTaskIds, [b.id]);
+  const r = await api("POST", "/api/review", { decisions: [{ taskId: b.id, action: "date", date: "2026-10-12" }] });
+  assert.equal(r.json.state.tasks.find((t: any) => t.id === b.id).plannedDate, "2026-10-12");
+});

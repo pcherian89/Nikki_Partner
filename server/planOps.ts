@@ -441,10 +441,10 @@ export function editPlan(db: DB, input: { expectedVersion: number; plan: unknown
   }
 }
 
-export type ReviewAction = "today" | "tomorrow" | "done" | "someday" | "drop";
+export type ReviewAction = "today" | "tomorrow" | "date" | "done" | "someday" | "drop";
 
 /** Morning review of unfinished work. Direct user decisions, applied immediately. */
-export function reviewNewDay(db: DB, decisions: { taskId: string; action: ReviewAction }[], timezone: string) {
+export function reviewNewDay(db: DB, decisions: { taskId: string; action: ReviewAction; date?: string }[], timezone: string) {
   const today = localNow(timezone).date;
   db.transaction(() => {
     for (const d of decisions) {
@@ -453,6 +453,7 @@ export function reviewNewDay(db: DB, decisions: { taskId: string; action: Review
       if (d.action === "done") updateTask(db, d.taskId, { status: "done" });
       else if (d.action === "today") updateTask(db, d.taskId, { plannedDate: today, status: "open", rolloverCount: t.rolloverCount + 1 });
       else if (d.action === "tomorrow") rescheduleTask(db, d.taskId, { to: "date", date: addDays(today, 1) }, timezone);
+      else if (d.action === "date" && d.date) rescheduleTask(db, d.taskId, { to: "date", date: d.date }, timezone);
       else if (d.action === "someday") rescheduleTask(db, d.taskId, { to: "someday" }, timezone);
       else if (d.action === "drop") deleteTaskEverywhere(db, d.taskId, today);
     }
@@ -511,7 +512,7 @@ export function doneToday(db: DB, timezone: string) {
   );
 }
 
-export type WrapDecision = { taskId: string; action: "tomorrow" | "done" | "someday" | "drop" };
+export type WrapDecision = { taskId: string; action: "tomorrow" | "date" | "done" | "someday" | "drop"; date?: string };
 
 /** Evening wrap-up: applies decisions about unfinished work and saves a journal entry. No model call. */
 export function wrapUpDay(db: DB, input: { decisions: WrapDecision[]; note: string }, timezone: string) {
@@ -521,6 +522,7 @@ export function wrapUpDay(db: DB, input: { decisions: WrapDecision[]; note: stri
       if (!getTask(db, d.taskId)) continue;
       if (d.action === "done") updateTask(db, d.taskId, { status: "done" });
       else if (d.action === "tomorrow") rescheduleTask(db, d.taskId, { to: "date", date: addDays(today, 1) }, timezone);
+      else if (d.action === "date" && d.date) rescheduleTask(db, d.taskId, { to: "date", date: d.date }, timezone);
       else if (d.action === "someday") rescheduleTask(db, d.taskId, { to: "someday" }, timezone);
       else if (d.action === "drop") deleteTaskEverywhere(db, d.taskId, today);
     }

@@ -486,7 +486,7 @@ app.post(
     const c = ctx(req);
     const body = parse(
       z.object({
-        decisions: z.array(z.object({ taskId: z.string(), action: z.enum(["tomorrow", "done", "someday", "drop"]) })).max(100),
+        decisions: z.array(z.object({ taskId: z.string(), action: z.enum(["tomorrow", "date", "done", "someday", "drop"]), date: z.string().refine(isValidDate).optional() })).max(100),
         note: z.string().max(4000).default(""),
       }),
       req.body,
@@ -577,7 +577,11 @@ app.post(
   h((req, res) => {
     const c = ctx(req);
     const body = parse(
-      z.object({ decisions: z.array(z.object({ taskId: z.string(), action: z.enum(["today", "tomorrow", "done", "someday", "drop"]) })).max(100) }),
+      z.object({
+        decisions: z
+          .array(z.object({ taskId: z.string(), action: z.enum(["today", "tomorrow", "date", "done", "someday", "drop"]), date: z.string().refine(isValidDate).optional() }))
+          .max(100),
+      }),
       req.body,
     );
     reviewNewDay(c.db, body.decisions, c.tz);

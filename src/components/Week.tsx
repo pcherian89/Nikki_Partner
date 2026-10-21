@@ -3,7 +3,8 @@ import type { AppState, Meeting, Task } from "../../shared/types";
 import type { AppActions } from "../App";
 import { fmtDate, fmtDuration, fmtRange } from "../util";
 import { ProposalCard } from "./ProposalCard";
-import { useCompletion } from "./Today";
+import { useCompletion, useMoveTask } from "./Today";
+import { MoveSheet } from "./MoveSheet";
 
 const addDays = (date: string, n: number) => {
   const d = new Date(`${date}T12:00:00Z`);
@@ -40,6 +41,8 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
   const proposal = isWeekProposal(state.proposal) ? state.proposal : null;
 
   const setPlanned = (t: Task, d: string | null) => actions.mutate("PATCH", `/api/tasks/${t.id}`, { plannedDate: d });
+  const [moving, setMoving] = useState<Task | null>(null);
+  const move = useMoveTask(state, actions, complete);
 
   return (
     <>
@@ -55,6 +58,19 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
         </button>
       </div>
 
+      {moving && (
+        <MoveSheet
+          title={moving.title}
+          choices={["today", "tomorrow", "pick", "someday", "done"]}
+          minDate={state.today}
+          onClose={() => setMoving(null)}
+          onPick={(c, d) => {
+            const t = moving;
+            setMoving(null);
+            move(t, c, d);
+          }}
+        />
+      )}
       {proposal && <ProposalCard state={state} proposal={proposal} actions={actions} onShowPlan={() => window.scrollTo({ top: 0, behavior: "smooth" })} />}
 
       <div className="week">
@@ -111,8 +127,8 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
                       {t.plannedDate && t.plannedDate < state.today && <span className="tag subtle">from {fmtDate(t.plannedDate, false)}</span>}
                       {t.estimateMinutes ? <span className="muted small"> · {fmtDuration(t.estimateMinutes)}</span> : null}
                     </span>
-                    <button className="icon-btn small-x" aria-label={`Unplan ${t.title}`} title="Remove from this day" onClick={() => setPlanned(t, null)}>
-                      ×
+                    <button className="icon-btn" aria-label={`Move ${t.title}`} onClick={() => setMoving(t)}>
+                      ⋯
                     </button>
                   </div>
                 ))}

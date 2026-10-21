@@ -4,10 +4,11 @@ import { api, ApiError } from "../api";
 import { AutoTextarea } from "./AutoTextarea";
 import type { AppActions } from "../App";
 import { ProposalCard } from "./ProposalCard";
-import { ActualTime, doneTodayTasks, MorningCheckIn, WrappedUpNote, WrapUpPanel } from "./DayRhythm";
+import { ActualTime, doneTodayTasks, MorningCheckIn, WrapUpPanel } from "./DayRhythm";
+import { NowCard } from "./NowCard";
 import { StepList, TimerButton } from "./TaskTools";
 import { isWeekProposal, Week } from "./Week";
-import { DecisionRow, MoveSheet, type MoveChoice } from "./MoveSheet";
+import { ActionSheet, DecisionRow, MoveSheet, type MoveChoice } from "./MoveSheet";
 import { capacity, draftOf, fmtDate, fmtDuration, fmtRange, fmtTime, fromMin, taskById, toMin } from "../util";
 
 type Mode = "schedule" | "checklist";
@@ -184,6 +185,17 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
   const tasks = useMemo(() => taskById(state.tasks), [state.tasks]);
   const complete = useCompletion(state, actions);
   const plan = state.plan;
+  const [dayMenu, setDayMenu] = useState(false);
+  const openReplan = () => {
+    setReplanOpen(true);
+    setWrapOpen(false);
+  };
+  const openWrap = () => {
+    setWrapOpen(true);
+    setReplanOpen(false);
+  };
+  const proposalToday = !!state.proposal?.plan && state.proposal.date === state.today;
+  const showNow = !state.newDay && !showCheckIn && !proposalToday && !wrapOpen && !replanOpen;
 
   return (
     <>
@@ -192,24 +204,26 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
           <h2 className="h2">{fmtDate(state.today)}</h2>
           <div className="muted small">{fmtTime(state.now)}</div>
         </div>
-        <div className="row gap wrap head-actions">
-          {plan && (
-            <button className="btn" onClick={() => { setReplanOpen((o) => !o); setWrapOpen(false); }} disabled={busy}>
-              Replan
-            </button>
-          )}
-          {canWrap && !state.wrapUpToday && (
-            <button className="btn ghost" onClick={() => { setWrapOpen((o) => !o); setReplanOpen(false); }} disabled={busy}>
-              Wrap up
-            </button>
-          )}
-        </div>
+        {(plan || canWrap) && (
+          <button className="icon-btn head-more" aria-label="Day options" onClick={() => setDayMenu(true)} disabled={busy}>
+            ⋯
+          </button>
+        )}
+        {dayMenu && (
+          <ActionSheet
+            title="Today"
+            onClose={() => setDayMenu(false)}
+            items={[
+              ...(plan ? [{ label: "Replan the rest of today", run: openReplan }] : []),
+              ...(canWrap ? [{ label: state.wrapUpToday ? "Edit wrap-up" : "Wrap up the day", run: openWrap }] : []),
+            ]}
+          />
+        )}
       </div>
 
       {state.newDay && <NewDayReview state={state} actions={actions} />}
       {showCheckIn && <MorningCheckIn state={state} actions={actions} />}
       {wrapOpen && <WrapUpPanel state={state} actions={actions} onClose={() => setWrapOpen(false)} busy={busy} />}
-      {state.wrapUpToday && !wrapOpen && <WrappedUpNote state={state} onEdit={() => setWrapOpen(true)} />}
 
       {busy && (
         <div className="card working" role="status">
@@ -228,11 +242,10 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
 
       {replanOpen && plan && <ReplanForm plan={plan} state={state} actions={actions} onClose={() => setReplanOpen(false)} busy={busy} />}
 
-      {!plan ? (
-        showCheckIn ? null : <NoPlan state={state} actions={actions} />
-      ) : (
+      {showNow && <NowCard state={state} actions={actions} plan={plan} onToggle={complete} onReplan={openReplan} onWrap={openWrap} />}
+
+      {plan && (
         <>
-          <NextUp plan={plan} state={state} tasks={tasks} onToggle={complete} actions={actions} />
           <div className="row between center-y section-gap">
             <div className="segmented" role="tablist" aria-label="Plan view">
               <button className={mode === "schedule" ? "active" : ""} onClick={() => setMode("schedule")} role="tab" aria-selected={mode === "schedule"}>
@@ -248,7 +261,7 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
           ) : (
             <Checklist plan={plan} tasks={tasks} onToggle={complete} actions={actions} />
           )}
-          <Capacity plan={plan} />
+          <Capacity plan={plan} now={state.now} />
           {plan.deferred.length > 0 && (
             <details className="card deferred-card">
               <summary className="section-summary">Deferred ({plan.deferred.length})</summary>
@@ -319,88 +332,6 @@ function TomorrowBody({ state, actions, busy }: { state: AppState; actions: AppA
   );
 }
 
-function NoPlan({ state, actions }: { state: AppState; actions: AppActions }) {
-  if (state.proposal?.plan) return null;
-  const open = state.tasks.filter((t) => t.type === "action" && t.status === "open");
-  return (
-    <div className="card empty-plan">
-      <h3 className="h3">No plan yet</h3>
-      <p className="muted">
-        {open.length ? `${open.length} open action${open.length > 1 ? "s" : ""}. Tell Nikki how much time you have.` : "Tell Nikki what's on your plate and how much time you have."}
-      </p>
-      <button className="btn primary" onClick={() => actions.focusComposer(open.length ? "Let's plan today. " : "")}>
-        Plan today
-      </button>
-    </div>
-  );
-}
-
-function NextUp({
-  plan,
-  state,
-  tasks,
-  onToggle,
-  actions,
-}: {
-  plan: Plan;
-  state: AppState;
-  tasks: Map<string, Task>;
-  onToggle: (t: Task, d: boolean) => void;
-  actions: AppActions;
-}) {
-  const now = toMin(state.now);
-  const next = plan.blocks.find((b) => (b.kind === "focus" || b.kind === "task") && toMin(b.end) > now && b.taskId && tasks.get(b.taskId)?.status !== "done");
-  const allDone = plan.blocks.filter((b) => b.taskId && tasks.has(b.taskId)).every((b) => tasks.get(b.taskId!)?.status === "done");
-  const missed = new Set(
-    plan.blocks.filter((b) => (b.kind === "focus" || b.kind === "task") && toMin(b.end) <= now && b.taskId && tasks.has(b.taskId) && tasks.get(b.taskId)?.status !== "done").map((b) => b.taskId),
-  ).size;
-  const missedNote =
-    missed > 0 ? (
-      <p className="missed-note small">
-        {missed === 1 ? "1 task not finished" : `${missed} tasks not finished`} — see the schedule below.
-      </p>
-    ) : null;
-  if (allDone) {
-    return (
-      <div className="card next-up done">
-        <div className="eyebrow">Done</div>
-        <strong>Everything planned for today is done.</strong>
-      </div>
-    );
-  }
-  if (!next) {
-    return (
-      <div className="card next-up">
-        <div className="eyebrow">Next up</div>
-        <strong>Nothing else scheduled today.</strong>
-        {missedNote}
-      </div>
-    );
-  }
-  const task = tasks.get(next.taskId!)!;
-  const isNow = toMin(next.start) <= now;
-  return (
-    <div className="card next-up">
-      <div className="eyebrow">{isNow ? "Now" : "Next up"}</div>
-      <label className="next-row">
-        <input type="checkbox" className="check" checked={task.status === "done"} onChange={(e) => onToggle(task, e.target.checked)} />
-        <span>
-          <strong className="next-title">{task.title}</strong>
-          <span className="muted small block">
-            {fmtRange(next.start, next.end)}
-            {plan.focusTaskId === task.id ? " · Main focus" : ""}
-          </span>
-        </span>
-      </label>
-      <StepList task={task} actions={actions} />
-      <div className="task-tools">
-        <TimerButton task={task} actions={actions} />
-      </div>
-      {missedNote}
-    </div>
-  );
-}
-
 function Schedule({
   plan,
   state,
@@ -456,6 +387,9 @@ function Schedule({
         const isWork = b.kind === "focus" || b.kind === "task";
         const current = toMin(b.start) <= now && now < toMin(b.end);
         const past = toMin(b.end) <= now;
+        // A task that continues in a later block today isn't "not finished" yet.
+        const continues = !!b.taskId && plan.blocks.some((x) => x.taskId === b.taskId && toMin(x.end) > now);
+        const missed = past && isWork && !!task && task.status !== "done" && !continues;
         return (
           <Fragment key={b.id}>
           {idx === nowIndex && (
@@ -463,7 +397,7 @@ function Schedule({
               <span>{fmtTime(state.now)}</span>
             </li>
           )}
-          <li className={`slot kind-${b.kind} ${current ? "current" : ""} ${past ? "past" : ""} ${past && isWork && task && task.status !== "done" ? "missed" : ""} ${task?.status === "done" ? "done" : ""}`}>
+          <li className={`slot kind-${b.kind} ${current ? "current" : ""} ${past ? "past" : ""} ${missed ? "missed" : ""} ${task?.status === "done" ? "done" : ""}`}>
             <div className="slot-time">
               {fmtTime(b.start)}
               <span className="muted">{fmtDuration(toMin(b.end) - toMin(b.start))}</span>
@@ -488,9 +422,9 @@ function Schedule({
                       {task?.status === "blocked" && <span className="tag warn">Blocked</span>}
                       {task?.status === "waiting" && <span className="tag subtle">Waiting</span>}
                       {current && <span className="tag now">Now</span>}
-                      {past && isWork && task && task.status !== "done" && <span className="tag warn">Not finished</span>}
+                      {missed && <span className="tag warn">Not finished</span>}
                     </span>
-                    {past && isWork && task && task.status !== "done" && (
+                    {missed && task && (
                       <MissedActions task={task} state={state} actions={actions} onToggle={onToggle} />
                     )}
                   </div>
@@ -611,22 +545,26 @@ function Checklist({ plan, tasks, onToggle, actions }: { plan: Plan; tasks: Map<
   );
 }
 
-function Capacity({ plan }: { plan: Plan }) {
+function Capacity({ plan, now }: { plan: Plan; now?: string }) {
   const c = capacity(plan);
-  if (!c.available) return null;
+  if (!c.window) return null;
+  // The whole working window, so every part adds up to it: meetings + work + breaks + buffer + free.
   const parts = [
-    { key: "work", label: "Planned work", value: c.work },
+    { key: "meeting", label: "Meetings", value: c.meetings },
+    { key: "work", label: "Work", value: c.work },
     { key: "break", label: "Breaks", value: c.breaks },
     { key: "buffer", label: "Buffer", value: c.buffer },
     { key: "open", label: "Free", value: c.open },
   ].filter((p) => p.value > 0);
+  const left = now && toMin(now) > toMin(plan.window.start) && toMin(now) < toMin(plan.window.end) ? toMin(plan.window.end) - toMin(now) : null;
   return (
-    <div className="card capacity" aria-label="How your time adds up">
+    <div className="card capacity" aria-label="How your working day adds up">
       <div className="row between center-y wrap gap">
-        <span>
-          <strong>{fmtDuration(c.available)}</strong> <span className="muted small">free between {fmtRange(plan.window.start, plan.window.end)}</span>
+        <h3 className="h3 cap-title">Your day</h3>
+        <span className="muted small">
+          {fmtRange(plan.window.start, plan.window.end)} · {fmtDuration(c.window)}
+          {left != null ? ` · ${fmtDuration(left)} left` : ""}
         </span>
-        {c.meetings > 0 && <span className="muted small">after {fmtDuration(c.meetings)} of meetings</span>}
       </div>
       <div className="cap-bar" aria-hidden>
         {parts.map((p) => (
@@ -775,17 +713,18 @@ function ReplanForm({ plan, state, actions, onClose, busy }: { plan: Plan; state
   );
 }
 
-type ReviewAction = "today" | "tomorrow" | "done" | "someday" | "drop";
-const REVIEW_TO_MOVE: Record<ReviewAction, MoveChoice> = { today: "today", tomorrow: "tomorrow", done: "done", someday: "someday", drop: "drop" };
-const REVIEW_SHORT: Record<ReviewAction, string> = { today: "Today", tomorrow: "Tomorrow", done: "Done", someday: "Someday", drop: "Delete" };
+type ReviewAction = "today" | "tomorrow" | "date" | "done" | "someday" | "drop";
+const REVIEW_TO_MOVE: Record<ReviewAction, MoveChoice> = { today: "today", tomorrow: "tomorrow", date: "pick", done: "done", someday: "someday", drop: "drop" };
+const REVIEW_SHORT: Record<ReviewAction, string> = { today: "Today", tomorrow: "Tomorrow", date: "Pick a day", done: "Done", someday: "Someday", drop: "Delete" };
 
 function NewDayReview({ state, actions }: { state: AppState; actions: AppActions }) {
   const nd = state.newDay!;
   const [decisions, setDecisions] = useState<Record<string, ReviewAction>>(Object.fromEntries(nd.unfinishedTaskIds.map((id) => [id, "today"])));
+  const [dates, setDates] = useState<Record<string, string>>({});
   const tasks = taskById(state.tasks);
   const submit = async (skip = false) => {
     const ok = await actions.mutate("POST", "/api/review", {
-      decisions: skip ? [] : Object.entries(decisions).map(([taskId, action]) => ({ taskId, action })),
+      decisions: skip ? [] : Object.entries(decisions).map(([taskId, action]) => ({ taskId, action, ...(action === "date" ? { date: dates[taskId] } : {}) })),
     });
     if (ok && !skip) {
       const kept = Object.entries(decisions).filter(([, a]) => a === "today").map(([id]) => tasks.get(id)?.title).filter(Boolean);
@@ -809,10 +748,14 @@ function NewDayReview({ state, actions }: { state: AppState; actions: AppActions
               note={t.rolloverCount ? `moved ${t.rolloverCount}× before` : undefined}
               value={decisions[id]}
               labels={REVIEW_SHORT}
-              choices={["today", "tomorrow", "someday", "done", "drop"]}
+              choices={["today", "tomorrow", "date", "someday", "done", "drop"]}
               toMove={REVIEW_TO_MOVE}
               minDate={state.today}
-              onChange={(a) => setDecisions({ ...decisions, [id]: a })}
+              date={dates[id]}
+              onChange={(a, d) => {
+                setDecisions({ ...decisions, [id]: a });
+                if (d) setDates({ ...dates, [id]: d });
+              }}
             />
           );
         })}

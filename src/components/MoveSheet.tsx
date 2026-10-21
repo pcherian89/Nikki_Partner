@@ -52,16 +52,7 @@ export function MoveSheet({
         <div className="sheet-options">
           {choices.map((c) =>
             c === "pick" && picking ? (
-              <label key={c} className="sheet-option picking">
-                <span>Pick a day</span>
-                <input
-                  type="date"
-                  min={minDate}
-                  autoFocus
-                  aria-label="Pick a day"
-                  onChange={(e) => e.target.value && onPick("pick", e.target.value)}
-                />
-              </label>
+              <DayPicker key={c} minDate={minDate} onPick={(d) => onPick("pick", d)} />
             ) : (
               <button
                 key={c}
@@ -83,6 +74,39 @@ export function MoveSheet({
   );
 }
 
+const addDays = (date: string, n: number) => {
+  const d = new Date(`${date}T12:00:00`);
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const chipLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
+
+/**
+ * The next two weeks as tap-once day chips, plus any other date. Nothing happens until a day is tapped
+ * (the iPhone date wheel fills in a default as soon as it opens, so it gets its own Set button).
+ */
+function DayPicker({ minDate, onPick }: { minDate: string; onPick: (date: string) => void }) {
+  const [other, setOther] = useState("");
+  const days = Array.from({ length: 14 }, (_, i) => addDays(minDate, i + 2));
+  return (
+    <div className="day-picker">
+      <div className="day-chips" role="group" aria-label="Pick a day">
+        {days.map((d) => (
+          <button key={d} type="button" className="day-chip" onClick={() => onPick(d)}>
+            {chipLabel(d)}
+          </button>
+        ))}
+      </div>
+      <div className="day-other">
+        <input type="date" min={minDate} value={other} onChange={(e) => setOther(e.target.value)} aria-label="Another date" />
+        <button type="button" className="btn small primary" disabled={!other || other < minDate} onClick={() => onPick(other)}>
+          Set
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** A task row with its chosen outcome and a quiet "Change" link that opens the shared Move… sheet. */
 export function DecisionRow<A extends string>({
   title,
@@ -92,6 +116,7 @@ export function DecisionRow<A extends string>({
   choices,
   toMove,
   minDate,
+  date,
   onChange,
 }: {
   title: string;
@@ -101,7 +126,9 @@ export function DecisionRow<A extends string>({
   choices: A[];
   toMove: Record<A, MoveChoice>;
   minDate: string;
-  onChange: (a: A) => void;
+  /** The chosen day, when the choice is "Pick a day". */
+  date?: string;
+  onChange: (a: A, date?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -111,7 +138,7 @@ export function DecisionRow<A extends string>({
         {note && <span className="muted small"> · {note}</span>}
       </span>
       <button type="button" className="decision-change" onClick={() => setOpen(true)}>
-        <span className={`decision-value v-${value}`}>{labels[value]}</span>
+        <span className={`decision-value v-${value}`}>{date && toMove[value] === "pick" ? chipLabel(date) : labels[value]}</span>
         <span className="muted small">Change</span>
       </button>
       {open && (
@@ -121,9 +148,9 @@ export function DecisionRow<A extends string>({
           current={toMove[value]}
           minDate={minDate}
           onClose={() => setOpen(false)}
-          onPick={(c) => {
+          onPick={(c, d) => {
             const a = choices.find((x) => toMove[x] === c);
-            if (a) onChange(a);
+            if (a) onChange(a, d);
             setOpen(false);
           }}
         />

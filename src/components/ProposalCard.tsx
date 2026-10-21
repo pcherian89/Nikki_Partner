@@ -3,6 +3,7 @@ import type { AppState, PlanBlock, PlanDraft, Proposal } from "../../shared/type
 import { api, ApiError } from "../api";
 import type { AppActions } from "../App";
 import { capacity, fmtDate, fmtDuration, fmtRange, taskById, toMin } from "../util";
+import { Avatar } from "./Avatar";
 
 const FIELD_LABELS: Record<string, string> = {
   name: "Name",
@@ -120,8 +121,9 @@ export function ProposalCard({
   return (
     <div className={`proposal card ${stale ? "is-stale" : ""}`}>
       <div className="proposal-head">
-        <div>
-          <h3 className="h3">
+        <div className="row gap center-y">
+          <Avatar size={28} />
+          <h3 className="h3 proposal-title">
             {proposal.kind === "replan"
               ? "Updated plan"
               : draft
