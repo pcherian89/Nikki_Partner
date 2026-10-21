@@ -133,18 +133,6 @@ export function dbPath(ws: Workspace) {
   return ws === "demo" ? config.demoDatabasePath : config.databasePath;
 }
 
-/** Closes the databases cleanly (on shutdown), so nothing is left half-written. */
-export function closeAll() {
-  for (const db of dbs.values()) {
-    try {
-      db.close();
-    } catch {
-      /* already closed */
-    }
-  }
-  dbs.clear();
-}
-
 export function getDb(ws: Workspace): DB {
   let db = dbs.get(ws);
   if (db) return db;
