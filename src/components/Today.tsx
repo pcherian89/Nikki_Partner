@@ -219,6 +219,13 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
             onClose={() => setDayMenu(false)}
             items={[
               { label: "Add a reminder…", run: () => setAddingReminder(true) },
+              {
+                label: "Weekly review",
+                run: () => {
+                  actions.focusComposer();
+                  void actions.send("Weekly review.", "weekly_review");
+                },
+              },
               ...(plan ? [{ label: "Replan the rest of today", run: openReplan }] : []),
               ...(canWrap ? [{ label: state.wrapUpToday ? "Edit wrap-up" : "Wrap up the day", run: openWrap }] : []),
             ]}

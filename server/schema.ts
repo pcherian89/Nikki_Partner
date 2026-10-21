@@ -19,7 +19,7 @@ const refWhy = { type: "object", additionalProperties: false, required: ["task_r
 export const RESPONSE_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["message", "questions", "quick_replies", "captured_items", "task_updates", "actions", "meetings", "context_updates", "project_plan", "plan"],
+  required: ["message", "questions", "quick_replies", "captured_items", "task_updates", "actions", "meetings", "context_updates", "memory_updates", "project_plan", "plan"],
   properties: {
     message: str,
     questions: { type: "array", items: str },
@@ -95,6 +95,25 @@ export const RESPONSE_JSON_SCHEMA = {
         additionalProperties: false,
         required: ["date", "title", "start", "end"],
         properties: { date: str, title: str, start: str, end: str },
+      },
+    },
+    memory_updates: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["op", "item_id", "kind", "text", "status", "rationale", "project_id", "review_after", "reason"],
+        properties: {
+          op: { type: "string", enum: ["add", "update", "outdate", "remove"] },
+          item_id: str,
+          kind: { type: "string", enum: ["focus", "priority", "commitment", "goal", "constraint", "decision", "paused", "idea"] },
+          text: str,
+          status: { type: "string", enum: ["confirmed", "tentative", "assumption", "recommendation", "approved", "outdated"] },
+          rationale: str,
+          project_id: str,
+          review_after: str,
+          reason: str,
+        },
       },
     },
     project_plan: {
@@ -237,6 +256,23 @@ export const ModelResponse = z.object({
       reason: z.string(),
     }),
   ),
+  memory_updates: z
+    .array(
+      z.object({
+        op: z.enum(["add", "update", "outdate", "remove"]),
+        item_id: optStr.optional().default(null),
+        kind: z.enum(["focus", "priority", "commitment", "goal", "constraint", "decision", "paused", "idea"]),
+        text: z.string().max(400).optional().default(""),
+        status: z.enum(["confirmed", "tentative", "assumption", "recommendation", "approved", "outdated"]).optional().default("tentative"),
+        rationale: z.string().max(500).optional().default(""),
+        project_id: optStr.optional().default(null),
+        review_after: optStr.optional().default(null),
+        reason: z.string().max(300).optional().default(""),
+      }),
+    )
+    .max(8)
+    .optional()
+    .default([]),
   project_plan: z
     .object({
       project_id: optStr.optional().default(null),

@@ -294,6 +294,7 @@ export interface Proposal {
   taskChanges: TaskChange[];
   contextSuggestions: ContextSuggestion[];
   warnings: string[];
+  memoryUpdates?: MemoryUpdate[];
   /** A project to create or revise (confirmed with the same Confirm as a plan). */
   projectPlan?: ProjectDraft | null;
 }
@@ -326,10 +327,12 @@ export interface ChatMessage {
     exampleAnswer?: string;
     demoPhase?: string;
     demoInfo?: unknown;
-    kind?: "chat" | "replan" | "review" | "wrapup";
+    kind?: "chat" | "replan" | "review" | "wrapup" | "weekly_review";
     system?: boolean;
     quickReplies?: string[];
     receipts?: Receipt[];
+    /** Weekly review: the app's own counts, shown with Nikki's summary. */
+    weekly?: WeeklyFacts;
   };
 }
 
@@ -362,6 +365,7 @@ export interface AppState {
   /** Uncertain timer time waiting for the user to confirm or correct. */
   checks: WorkSession[];
   projects: ProjectView[];
+  memory: MemoryItem[];
   reminders: Reminder[];
   notifications: NotificationStatus;
   taskMeta: Record<string, TaskMeta>;
@@ -501,4 +505,68 @@ export interface ProjectDraft {
   milestones: { id: string | null; ref: string; title: string; targetDate: string | null; remove?: boolean }[];
   tasks: { ref: string; title: string; milestoneRef: string | null; priority: TaskPriority; estimateMinutes: number | null }[];
   reason: string;
+}
+
+export type MemoryKind = "focus" | "priority" | "commitment" | "goal" | "constraint" | "decision" | "paused" | "idea";
+/** confirmed: the user said it's true. tentative: an idea or a maybe. assumption: something Nikki is assuming. recommendation: Nikki's advice.
+ *  approved: a decision the user accepted. outdated: no longer true (kept so it can be reviewed, never used for advice). */
+export type MemoryStatus = "confirmed" | "tentative" | "assumption" | "recommendation" | "approved" | "outdated";
+
+export interface MemoryItem {
+  id: string;
+  kind: MemoryKind;
+  text: string;
+  status: MemoryStatus;
+  /** Why (mainly for decisions). */
+  rationale: string;
+  source: "user" | "nikki";
+  projectId: string | null;
+  /** Tentative things stop being used after this date unless the user keeps them. */
+  reviewAfter: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** True when reviewAfter has passed: still shown to the user, no longer given to Nikki as context. */
+  stale: boolean;
+}
+
+/** A change Nikki proposes to what she remembers. Applied only when the user confirms. */
+export interface MemoryUpdate {
+  id: string;
+  op: "add" | "update" | "outdate" | "remove";
+  /** The item changed (update, outdate, remove). */
+  itemId: string | null;
+  kind: MemoryKind;
+  text: string;
+  status: MemoryStatus;
+  rationale: string;
+  projectId: string | null;
+  reviewAfter: string | null;
+  reason: string;
+}
+
+/** Numbers for the weekly review, counted by the app from real records. */
+export interface WeeklyFacts {
+  from: string;
+  to: string;
+  completed: { id: string; title: string; minutes: number; projectTitle: string | null }[];
+  unfinished: { id: string; title: string; plannedDate: string | null }[];
+  recordedMinutes: number;
+  uncheckedMinutes: number;
+  perDay: { date: string; minutes: number }[];
+  projects: {
+    id: string;
+    title: string;
+    status: ProjectStatus;
+    minutesThisWeek: number;
+    tasksDoneThisWeek: number;
+    milestonesDoneThisWeek: number;
+    daysSinceWorked: number | null;
+    overdueMilestones: number;
+    nextActionTitles: string[];
+  }[];
+  limitedAttention: string[];
+  upcoming: { deadlines: { title: string; date: string }[]; commitments: number; reminders: number };
+  decisionsThisWeek: { text: string }[];
+  decisionsToReview: { text: string }[];
+  dataGaps: string[];
 }

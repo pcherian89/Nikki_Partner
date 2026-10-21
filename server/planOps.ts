@@ -44,6 +44,7 @@ import { buildFacts, computeCarryovers, computeDays, computeTaskMeta, remainingE
 import { describeTimer, type Viewer } from "./timer.js";
 import { activeReminders, cancelForDeletedTask, reanchorForProject } from "./reminders.js";
 import { pushStatus } from "./push.js";
+import { applyMemoryUpdates, listMemory } from "./memory.js";
 import { applyProjectDraft, getProject, projectViews, validateProjectDraft } from "./projects.js";
 import { freeSegments } from "./scheduler.js";
 import { currentBuildId } from "./build.js";
@@ -133,6 +134,7 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined, 
     })(),
     checks: listUnverifiedSessions(db),
     projects: projectViews(db, tasks, now.date),
+    memory: listMemory(db, now.date),
     reminders: activeReminders(db, tz),
     notifications: pushStatus(db, viewer.clientId),
     taskMeta,
@@ -239,7 +241,7 @@ function taskMap(db: DB) {
 export function confirmProposal(
   db: DB,
   id: string,
-  opts: { plan?: unknown; acceptedTaskChangeIds?: string[]; timezone: string; source: "nikki" | "demo" },
+  opts: { plan?: unknown; acceptedTaskChangeIds?: string[]; acceptedMemoryIds?: string[]; timezone: string; source: "nikki" | "demo" },
 ) {
   const p = getProposal(db, id);
   if (!p) throw new UserFacingError("Proposal not found.", 404, "not_found");
@@ -333,6 +335,10 @@ export function confirmProposal(
         if (e instanceof StalePlanError) throw new UserFacingError("Your plan changed meanwhile. Ask Nikki for an update.", 409, "stale");
         throw e;
       }
+    }
+    if (p.memoryUpdates?.length) {
+      const okIds = new Set(opts.acceptedMemoryIds ?? p.memoryUpdates.map((m) => m.id));
+      applyMemoryUpdates(db, p.memoryUpdates.filter((m) => okIds.has(m.id)), now.date);
     }
     let projectId: string | null = null;
     if (p.projectPlan) {

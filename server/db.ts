@@ -171,6 +171,20 @@ CREATE TABLE IF NOT EXISTS milestones (
   done_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones (project_id, position);
+-- What Nikki knows about the user's work beyond the app's own records (commitments, priorities, decisions…).
+-- Changed by the user directly, or by Nikki only after the user confirms. Tentative things expire for review.
+CREATE TABLE IF NOT EXISTS memory_items (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL,
+  rationale TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'user',
+  project_id TEXT,
+  review_after TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 -- Something to remember at a time. Not a task, a deadline, a scheduled block or a commitment.
 CREATE TABLE IF NOT EXISTS reminders (
   id TEXT PRIMARY KEY,
@@ -213,7 +227,7 @@ CREATE TABLE IF NOT EXISTS requests (
 const dbs = new Map<Workspace, DB>();
 
 /** Bump when the stored layout changes. Existing databases are copied aside before they are migrated. */
-export const SCHEMA_VERSION = 5; // 5: projects, milestones, tasks.project_id/milestone_id. 4: reminders, push_subscriptions, secrets. 2: work_sessions, block_outcomes. 3: priority, optional, deadline_time, verified sessions, pinned/provisional blocks
+export const SCHEMA_VERSION = 6; // 6: memory_items. 5: projects, milestones, tasks.project_id/milestone_id. 4: reminders, push_subscriptions, secrets. 2: work_sessions, block_outcomes. 3: priority, optional, deadline_time, verified sessions, pinned/provisional blocks
 const KEEP_SNAPSHOTS = 5;
 
 /**
@@ -325,6 +339,7 @@ export const TABLES = [
   "reminders",
   "projects",
   "milestones",
+  "memory_items",
   "requests",
   "settings",
 ];
@@ -895,7 +910,7 @@ export function saveProposal(db: DB, p: Proposal) {
     p.date,
     p.kind,
     p.basePlanVersion,
-    JSON.stringify({ plan: p.plan, taskChanges: p.taskChanges, contextSuggestions: p.contextSuggestions, warnings: p.warnings, projectPlan: p.projectPlan ?? null }),
+    JSON.stringify({ plan: p.plan, taskChanges: p.taskChanges, contextSuggestions: p.contextSuggestions, warnings: p.warnings, projectPlan: p.projectPlan ?? null, memoryUpdates: p.memoryUpdates ?? [] }),
   );
 }
 

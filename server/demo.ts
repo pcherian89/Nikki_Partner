@@ -18,7 +18,7 @@ export const EXAMPLE_DUMP =
 
 export interface DemoInput {
   text: string;
-  kind: "chat" | "replan" | "review" | "wrapup";
+  kind: "chat" | "replan" | "review" | "wrapup" | "weekly_review";
   remainingUntil?: string | null;
   profile: Profile;
   tasks: Task[];
@@ -153,6 +153,7 @@ const empty = (): ModelResponse => ({
   task_updates: [],
   actions: [],
   project_plan: null,
+  memory_updates: [],
   meetings: [],
   context_updates: [],
   availability: null,

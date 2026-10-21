@@ -67,6 +67,7 @@ import { ackPush, deliverByPush, sendTest, subscribe as pushSubscribe, unsubscri
 import { cancelReminder, completeReminder, createReminder, editReminder, snoozeReminder, tickReminders } from "./reminders.js";
 import { ActionRequest, runAction, setTaskFields, undoAction } from "./commands.js";
 import { linkTask, setMilestoneStatus, setProjectStatus } from "./projects.js";
+import { addMemory, removeMemory, updateMemory } from "./memory.js";
 import { addDays, isValidDate, isValidTime, isValidTimeZone, localNow } from "./time.js";
 import { validateMeeting, validatePlanDraft } from "./validate.js";
 
@@ -251,7 +252,7 @@ app.delete(
 const MessageBody = z.object({
   text: z.string().trim().min(1).max(8000),
   clientRequestId: z.string().min(8).max(100),
-  kind: z.enum(["chat", "review", "wrapup"]).default("chat"),
+  kind: z.enum(["chat", "review", "wrapup", "weekly_review"]).default("chat"),
 });
 
 const ReplanBody = z.object({
@@ -311,7 +312,7 @@ app.post(
   "/api/proposals/:id/confirm",
   h((req, res) => {
     const c = ctx(req);
-    const body = parse(z.object({ plan: z.unknown().optional(), acceptedTaskChangeIds: z.array(z.string()).optional() }), req.body ?? {});
+    const body = parse(z.object({ plan: z.unknown().optional(), acceptedTaskChangeIds: z.array(z.string()).optional(), acceptedMemoryIds: z.array(z.string()).optional() }), req.body ?? {});
     const r = confirmProposal(c.db, String(req.params.id), { ...body, timezone: c.tz, source: c.ws === "demo" ? "demo" : "nikki" });
     res.json({ state: state(req, c), ...r });
   }),
@@ -539,6 +540,45 @@ app.post(
     const c = ctx(req);
     const b = parse(z.object({ status: z.enum(["open", "done"]) }), req.body);
     setMilestoneStatus(c.db, String(req.params.id), b.status);
+    res.json({ state: state(req, c) });
+  }),
+);
+
+// ---------- what Nikki remembers (the user can always inspect and change it) ----------
+
+const MemoryBody = z.object({
+  kind: z.enum(["focus", "priority", "commitment", "goal", "constraint", "decision", "paused", "idea"]),
+  text: z.string().trim().min(1).max(300),
+  status: z.enum(["confirmed", "tentative", "assumption", "recommendation", "approved", "outdated"]).optional(),
+  rationale: z.string().max(400).optional(),
+});
+
+app.post(
+  "/api/memory",
+  h((req, res) => {
+    const c = ctx(req);
+    const b = parse(MemoryBody, req.body);
+    // Things the user types themselves are firm unless they say otherwise.
+    addMemory(c.db, { ...b, source: "user" }, localNow(c.tz).date);
+    res.json({ state: state(req, c) });
+  }),
+);
+
+app.patch(
+  "/api/memory/:id",
+  h((req, res) => {
+    const c = ctx(req);
+    const b = parse(MemoryBody.partial().extend({ keep: z.boolean().optional() }), req.body);
+    updateMemory(c.db, String(req.params.id), b, localNow(c.tz).date);
+    res.json({ state: state(req, c) });
+  }),
+);
+
+app.delete(
+  "/api/memory/:id",
+  h((req, res) => {
+    const c = ctx(req);
+    removeMemory(c.db, String(req.params.id));
     res.json({ state: state(req, c) });
   }),
 );

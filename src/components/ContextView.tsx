@@ -1,4 +1,5 @@
 import { NotificationsCard } from "./Reminders";
+import { StrategyCard } from "./Strategy";
 import { useEffect, useMemo, useState } from "react";
 import type { AppState, Profile } from "../../shared/types";
 import { api, browserTimezone } from "../api";
@@ -111,6 +112,8 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
           )}
         </div>
       </form>
+
+      <StrategyCard state={state} actions={actions} />
 
       <Calendars state={state} actions={actions} />
       <NikkiInCalendar state={state} actions={actions} />

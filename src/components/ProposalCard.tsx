@@ -57,6 +57,9 @@ export function planGaps(draft: PlanDraft, state: AppState) {
   return { notScheduled, atRisk };
 }
 
+export const MEMORY_KIND: Record<string, string> = { focus: "Focus", priority: "Priority", commitment: "Commitment", goal: "Goal", constraint: "Constraint", decision: "Decision", paused: "Paused", idea: "Idea" };
+export const MEMORY_STATUS: Record<string, string> = { confirmed: "Confirmed", tentative: "Tentative", assumption: "Assumption", recommendation: "Recommendation", approved: "Approved", outdated: "Outdated" };
+
 const isPhone = () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches;
 
 export function ProposalCard({
@@ -73,6 +76,7 @@ export function ProposalCard({
   const [draft, setDraft] = useState<PlanDraft | null>(proposal.plan ? structuredClone(proposal.plan) : null);
   const [edited, setEdited] = useState(false);
   const [accepted, setAccepted] = useState<Set<string>>(new Set(proposal.taskChanges.map((c) => c.id)));
+  const [acceptedMem, setAcceptedMem] = useState<Set<string>>(new Set((proposal.memoryUpdates ?? []).map((m) => m.id)));
   const [errors, setErrors] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -104,11 +108,14 @@ export function ProposalCard({
       const r = await api("POST", `/api/proposals/${proposal.id}/confirm`, {
         plan: edited && draft ? draft : undefined,
         acceptedTaskChangeIds: [...accepted],
+        acceptedMemoryIds: [...acceptedMem],
       });
       actions.setState(r.state);
       if (draft) {
         actions.toast({ text: "Plan confirmed.", action: { label: "View plan", run: onShowPlan } });
         onShowPlan();
+      } else if (!proposal.projectPlan && !proposal.taskChanges.length && proposal.memoryUpdates?.length) {
+        actions.toast({ text: acceptedMem.size ? "Saved. You can review or change it in Context." : "Nothing saved." });
       } else if (proposal.projectPlan) {
         actions.toast({ text: proposal.projectPlan.projectId ? "Project updated." : `Project saved: ${proposal.projectPlan.title}. Find it in Everything.` });
       } else actions.toast({ text: accepted.size === 1 ? "Done — change applied." : `Done — ${accepted.size} changes applied.` });
@@ -301,6 +308,38 @@ export function ProposalCard({
         </div>
       )}
 
+      {(proposal.memoryUpdates?.length ?? 0) > 0 && (
+        <div className="task-changes memory-changes">
+          <div className="eyebrow">Nikki would remember</div>
+          {proposal.memoryUpdates!.map((m) => {
+            const was = m.itemId ? state.memory.find((x) => x.id === m.itemId) : null;
+            return (
+              <label key={m.id} className="check-row">
+                <input
+                  type="checkbox"
+                  checked={acceptedMem.has(m.id)}
+                  onChange={(e) => {
+                    const next = new Set(acceptedMem);
+                    if (e.target.checked) next.add(m.id);
+                    else next.delete(m.id);
+                    setAcceptedMem(next);
+                  }}
+                />
+                <span>
+                  <strong>{m.op === "add" ? "Remember" : m.op === "update" ? "Change" : m.op === "outdate" ? "No longer true" : "Forget"}</strong>{" "}
+                  <span className="tag subtle">{MEMORY_KIND[m.kind]}</span> <span className="tag subtle">{MEMORY_STATUS[m.status]}</span>
+                  <br />
+                  {m.op === "add" || m.op === "update" ? m.text : was?.text}
+                  {was && m.op === "update" && was.text !== m.text && <span className="muted small"> (was: {was.text})</span>}
+                  {m.rationale && <span className="muted small block">Why: {m.rationale}</span>}
+                  {m.reviewAfter && <span className="muted small block">Revisit {m.reviewAfter}</span>}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+
       {pendingSuggestions.length > 0 && (
         <div className="suggestions">
           <div className="eyebrow">Context updates</div>
@@ -377,10 +416,10 @@ export function ProposalCard({
           </button>
         </div>
       )}
-      {(draft || proposal.projectPlan || proposal.taskChanges.length > 0) && !stale && (
+      {(draft || proposal.projectPlan || proposal.taskChanges.length > 0 || (proposal.memoryUpdates?.length ?? 0) > 0) && !stale && (
         <div className="row gap wrap proposal-actions">
           <button className="btn primary" onClick={confirm} disabled={busy}>
-            {busy ? "Saving…" : draft ? (edited ? "Confirm edited plan" : "Confirm plan") : proposal.projectPlan ? (proposal.projectPlan.projectId ? "Confirm changes" : "Confirm project") : proposal.taskChanges.length === 1 ? "Confirm" : "Confirm changes"}
+            {busy ? "Saving…" : draft ? (edited ? "Confirm edited plan" : "Confirm plan") : proposal.projectPlan ? (proposal.projectPlan.projectId ? "Confirm changes" : "Confirm project") : proposal.taskChanges.length + (proposal.memoryUpdates?.length ?? 0) === 1 ? "Confirm" : "Confirm changes"}
           </button>
           {edited && (
             <button

@@ -3005,3 +3005,36 @@ details summary {
 .project-preview-list li {
   margin: 2px 0;
 }
+
+/* ---------- Stage F: what Nikki remembers, weekly review ---------- */
+.strategy-card .memory-group {
+  margin-top: 12px;
+}
+.memory-row {
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.memory-row:first-child {
+  border-top: 0;
+}
+.memory-row.stale .memory-text {
+  color: var(--text-2);
+}
+.memory-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.weekly-card {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.weekly-gaps ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}

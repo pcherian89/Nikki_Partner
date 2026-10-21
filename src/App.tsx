@@ -22,14 +22,14 @@ export interface Toast {
 export interface PendingSend {
   text: string;
   requestId: string;
-  kind: "chat" | "review" | "replan" | "wrapup";
+  kind: "chat" | "review" | "replan" | "wrapup" | "weekly_review";
   remainingUntil?: string | null;
 }
 
 export interface AppActions {
   /** Runs an API call that returns new state; shows errors as a toast. Returns true on success. */
   mutate: (method: string, url: string, body?: unknown) => Promise<boolean>;
-  send: (text: string, kind?: "chat" | "review" | "wrapup") => Promise<boolean>;
+  send: (text: string, kind?: "chat" | "review" | "wrapup" | "weekly_review") => Promise<boolean>;
   openHelper: (taskId: string, mode: "breakdown" | "assist") => void;
   replan: (remainingUntil: string | null, note?: string) => Promise<boolean>;
   setState: (s: AppState) => void;

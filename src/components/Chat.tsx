@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AppState, ChatMessage, Receipt } from "../../shared/types";
+import type { AppState, ChatMessage, Receipt, WeeklyFacts } from "../../shared/types";
 import type { AppActions, PendingSend } from "../App";
 import { Avatar } from "./Avatar";
 import { MicButton } from "./Voice";
@@ -200,6 +200,46 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
   );
 }
 
+const mins = (n: number) => (n >= 60 ? `${Math.floor(n / 60)}h${n % 60 ? ` ${n % 60}m` : ""}` : `${n}m`);
+
+/** The weekly review's numbers, counted by the app. Nikki's words interpret them; these are the facts. */
+function WeeklyCard({ w }: { w: WeeklyFacts }) {
+  return (
+    <div className="weekly-card">
+      <div className="eyebrow">
+        The numbers · {w.from} to {w.to}
+      </div>
+      <ul className="plain-list compact">
+        <li>
+          <strong>Done:</strong> {w.completed.length} task{w.completed.length === 1 ? "" : "s"} · {w.recordedMinutes ? `${mins(w.recordedMinutes)} recorded` : "no time recorded"}
+        </li>
+        <li>
+          <strong>Planned, not finished:</strong> {w.unfinished.length}
+        </li>
+        {w.projects.map((p) => (
+          <li key={p.id}>
+            <strong>{p.title}:</strong> {p.minutesThisWeek ? `${mins(p.minutesThisWeek)} this week` : "no time recorded"} · {p.tasksDoneThisWeek} task{p.tasksDoneThisWeek === 1 ? "" : "s"} done
+            {p.overdueMilestones ? ` · ${p.overdueMilestones} milestone overdue` : ""}
+          </li>
+        ))}
+        <li>
+          <strong>Coming up:</strong> {w.upcoming.deadlines.length} deadline{w.upcoming.deadlines.length === 1 ? "" : "s"}, {w.upcoming.commitments} commitment{w.upcoming.commitments === 1 ? "" : "s"}
+        </li>
+      </ul>
+      {w.dataGaps.length > 0 && (
+        <div className="weekly-gaps small">
+          <strong>What this can’t see:</strong>
+          <ul>
+            {w.dataGaps.map((g) => (
+              <li key={g}>{g}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** What the app actually did — the record, whatever the reply says. */
 function Receipts({ receipts, actions }: { receipts: Receipt[]; actions: AppActions }) {
   const [undone, setUndone] = useState<Record<string, boolean>>({});
@@ -260,6 +300,7 @@ function Message({ m, state, actions }: { m: ChatMessage; state: AppState; actio
             ))}
           </ol>
         )}
+        {m.meta.weekly ? <WeeklyCard w={m.meta.weekly} /> : null}
         {m.meta.receipts?.length ? <Receipts receipts={m.meta.receipts} actions={actions} /> : null}
         {(captured.length > 0 && !m.meta.receipts?.length) || meetings.length > 0 ? (
           <div className="captured">

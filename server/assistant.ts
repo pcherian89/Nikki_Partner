@@ -1,8 +1,10 @@
 import type {
   ChatMessage,
   Plan,
+  MemoryUpdate,
   Project,
   ProjectDraft,
+  WeeklyFacts,
   ContextSuggestion,
   Meeting,
   PlanBlock,
@@ -46,6 +48,7 @@ import { UserFacingError } from "./errors.js";
 import { ActionRequest, recordCreated, runActions } from "./commands.js";
 import { markProvisional, pinnedToKeep } from "./planOps.js";
 import { getProject, listProjects, projectViews, validateProjectDraft } from "./projects.js";
+import { listMemory, memoryForModel, recentMinutesByProject, validateMemoryUpdates, weeklyFacts, weeklySummary } from "./memory.js";
 import { activeReminders } from "./reminders.js";
 import { buildFacts, computeTaskMeta, deadlinesThisWeek, suggestNext } from "./derived.js";
 import type { Viewer } from "./timer.js";
@@ -56,7 +59,7 @@ export interface TurnInput {
   ws: Workspace;
   db: DB;
   text: string;
-  kind: "chat" | "replan" | "review" | "wrapup";
+  kind: "chat" | "replan" | "review" | "wrapup" | "weekly_review";
   timezone: string;
   remainingUntil?: string | null;
   viewer?: Viewer;
@@ -73,16 +76,19 @@ interface Resolved {
   refMap: Map<string, string>;
   actions: ActionRequest[];
   projectPlan: ProjectDraft | null;
+  memoryUpdates: MemoryUpdate[];
 }
 
 const MAX_CAPTURES = 25;
+
+const emptyResponse = (): ModelResponse => ModelResponse.parse({ message: "", questions: [], captured_items: [], task_updates: [], meetings: [], context_updates: [], plan: null });
 
 /** An estimate is only accepted if the user's own message gave a duration. */
 const statedDuration = (text: string | undefined) =>
   text === undefined || /\b\d+(?:\.\d+)?\s*(?:m|min|mins|minutes?|h|hr|hrs|hours?)\b|\b(?:half an hour|an hour|a couple of hours|quarter of an hour)\b/i.test(text);
 
 /** The app's own numbers, so Nikki reports them instead of working them out. */
-function modelFacts(db: DB, tz: string, profile: ReturnType<typeof getProfile>, tasks: Task[]) {
+function modelFacts(db: DB, tz: string, profile: ReturnType<typeof getProfile>, tasks: Task[], userText: string, weekly: WeeklyFacts | null) {
   const f = buildFacts(db, tz, profile);
   const meta = computeTaskMeta(tasks, f, new Map());
   const next = suggestNext(tasks, f, meta);
@@ -91,8 +97,11 @@ function modelFacts(db: DB, tz: string, profile: ReturnType<typeof getProfile>, 
   const atRisk = open.filter((t) => ["at_risk", "overdue"].includes(meta[t.id]?.deadlineStatus ?? "")).map((t) => ({ task_id: t.id, status: meta[t.id].deadlineStatus, short_by_minutes: meta[t.id].shortByMinutes ?? null }));
   const running = tasks.find((t) => t.timerStartedAt);
   return {
+    ...(weekly ? { weekly } : {}),
+    strategy: memoryForModel(listMemory(db, f.today), userText),
     projects: (() => {
       const all = projectViews(db, tasks, f.today);
+      const recent = recentMinutesByProject(db, tz, tasks, 14);
       const live = all.filter((p) => p.status === "active" || p.status === "paused");
       return {
         active_and_paused: live.slice(0, 6).map((p) => ({
@@ -102,7 +111,7 @@ function modelFacts(db: DB, tz: string, profile: ReturnType<typeof getProfile>, 
           status: p.status,
           target_date: p.targetDate,
           milestones: p.milestones.slice(0, 10).map((m) => ({ id: m.id, title: m.title, target: m.targetDate, status: m.status })),
-          progress: { tasks_done: p.progress.tasksDone, tasks_total: p.progress.tasksTotal, milestones_done: p.progress.milestonesDone, milestones_total: p.progress.milestonesTotal, minutes_recorded: p.progress.workedMinutes, unassigned_open_tasks: p.progress.unassigned },
+          progress: { tasks_done: p.progress.tasksDone, tasks_total: p.progress.tasksTotal, milestones_done: p.progress.milestonesDone, milestones_total: p.progress.milestonesTotal, minutes_recorded: p.progress.workedMinutes, minutes_last_14_days: recent.get(p.id) ?? 0, unassigned_open_tasks: p.progress.unassigned },
           overdue_milestones: p.progress.overdueMilestoneIds,
           next_actions: p.progress.nextActionIds.map((id) => ({ task_id: id, title: tasks.find((t) => t.id === id)?.title })),
         })),
@@ -146,6 +155,7 @@ export function resolveResponse(
     planOn?: (date: string) => Plan | null;
     /** What the user typed, to check that an estimate was really stated by them. */
     userText?: string;
+    memoryDb?: DB;
     projectOn?: (id: string) => Project | null;
     projectTitles?: string[];
   },
@@ -327,8 +337,24 @@ export function resolveResponse(
       planErrors.push(`Project plan: a project called "${projectPlan.title}" already exists — revise it with its project_id instead of creating another.`);
     }
   }
+  // Changes to what Nikki remembers are proposals too. Tentative things can't be stored as firm facts by the model alone.
+  const memoryUpdates: MemoryUpdate[] = resp.memory_updates
+    .filter((m) => m.op !== "add" || m.text.trim())
+    .map((m) => ({
+      id: newId("mu"),
+      op: m.op,
+      itemId: m.item_id,
+      kind: m.kind,
+      text: m.text.trim(),
+      status: m.status,
+      rationale: m.rationale,
+      projectId: m.project_id,
+      reviewAfter: m.review_after,
+      reason: m.reason,
+    }));
+  if (memoryUpdates.length) for (const e of validateMemoryUpdates(memoryUpdates, ctx.memoryDb!, ctx.date)) planErrors.push(`Memory: ${e}`);
   const actions = resp.actions.map((a) => ({ ...a, task_id: refMap.get(a.task_id) ?? a.task_id }));
-  return { newTasks, newMeetings, draft, planErrors, taskChanges, contextSuggestions, notes, refMap, actions, projectPlan };
+  return { newTasks, newMeetings, draft, planErrors, taskChanges, contextSuggestions, notes, refMap, actions, projectPlan, memoryUpdates };
 }
 
 function parseModelJson(text: string): { ok: true; value: ModelResponse } | { ok: false; errors: string[] } {
@@ -389,6 +415,7 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
       hasPlanToday: !!plan,
       planOn: (date: string) => currentPlan(db, date),
       userText: input.text,
+      memoryDb: db,
       projectOn: (id: string) => getProject(db, id),
       projectTitles: listProjects(db).map((p) => p.title),
     };
@@ -396,8 +423,14 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
     let resp: ModelResponse;
     let resolved: Resolved;
     let demoMeta: Record<string, unknown> = {};
+    const weekly = input.kind === "weekly_review" ? weeklyFacts(db, input.timezone, tasks) : null;
 
-    if (!provider) {
+    if (!provider && weekly) {
+      // Demo mode has no model: the review is a plain summary of the app's own counts.
+      resp = { ...emptyResponse(), message: weeklySummary(weekly) };
+      demoMeta = { demo: true };
+      resolved = resolveResponse(resp, ctx);
+    } else if (!provider) {
       const lastAssistant = [...history].reverse().find((m) => m.role === "assistant" && !m.meta.system) ?? null;
       const demo = demoRespond({
         text: input.text,
@@ -443,7 +476,7 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
         },
         upcoming: listMeetingsBetween(db, addDays(now.date, 2), addDays(now.date, 30)),
         declinedSuggestions: declinedForModel(db),
-        facts: modelFacts(db, input.timezone, profile, tasks),
+        facts: modelFacts(db, input.timezone, profile, tasks, input.text, weekly),
       });
       const messages: ProviderMessage[] = boundedHistory(history);
       const last = messages[messages.length - 1];
@@ -484,10 +517,11 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
         };
         resolved.draft = null;
         resolved.projectPlan = null;
+        resolved.memoryUpdates = [];
       }
     }
 
-    return persistTurn(db, { resp, resolved, demoMeta, pending, baseVersion, date: now.date, kind: input.kind, tz: input.timezone, viewer: input.viewer ?? { clientId: null, prevSeenAt: null } });
+    return persistTurn(db, { resp, resolved, demoMeta, weekly, pending, baseVersion, date: now.date, kind: input.kind, tz: input.timezone, viewer: input.viewer ?? { clientId: null, prevSeenAt: null } });
   } catch (err) {
     // Remove the user's message so a retry doesn't duplicate it; the client keeps the text.
     deleteMessage(db, userMsg.id);
@@ -503,6 +537,7 @@ function persistTurn(
     resp: ModelResponse;
     resolved: Resolved;
     demoMeta: Record<string, unknown>;
+    weekly: WeeklyFacts | null;
     pending: Proposal | null;
     baseVersion: number;
     date: string;
@@ -538,7 +573,7 @@ function persistTurn(
     // Newer suggestions win; carried-over pending ones are kept only for other fields.
     const carried = (a.pending?.contextSuggestions ?? []).filter((c) => c.status === "pending");
     resolved.contextSuggestions = filterSuggestions(db, getProfile(db), [...carried, ...resolved.contextSuggestions]);
-    if (draft || resolved.projectPlan || resolved.taskChanges.length || resolved.contextSuggestions.length) {
+    if (draft || resolved.projectPlan || resolved.memoryUpdates.length || resolved.taskChanges.length || resolved.contextSuggestions.length) {
       supersedePending(db);
       proposal = {
         id: newId("pr"),
@@ -552,6 +587,7 @@ function persistTurn(
         contextSuggestions: resolved.contextSuggestions,
         warnings: resolved.notes,
         projectPlan: resolved.projectPlan,
+        memoryUpdates: resolved.memoryUpdates,
       };
       saveProposal(db, proposal);
     }
@@ -570,6 +606,7 @@ function persistTurn(
         addedMeetingIds: resolved.newMeetings.map((m) => m.id),
         notes: resolved.notes.length ? resolved.notes : undefined,
         receipts: receipts.length ? receipts : undefined,
+        weekly: a.weekly ?? undefined,
       },
     });
     return { message, proposal };
