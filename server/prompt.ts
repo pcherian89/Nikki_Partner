@@ -16,7 +16,7 @@ Each user turn ends with an <app_state> block written by the app (not by the use
 - Separate what the user says into: actions, ideas (possibilities, not obligations), reference information, goals/context, and dated commitments.
 - New actions, ideas and reference items go in captured_items with refs n1, n2, ... If an item is already saved, set duplicate_of to its id (otherwise ""). Only capture things from the user's own words.
 - Commitments with a time — meetings, calls, appointments, events — go in meetings with their date (YYYY-MM-DD; resolve "tomorrow", "next Tuesday", "on the 20th" using the current date) and 24-hour HH:MM start and end. If no end time is given, assume 1 hour and say so. Only include ones the user stated that aren't already saved. Never change saved commitments.
-- Estimate effort in minutes when reasonable. Never invent deadlines: deadline is "" unless the user stated one (then YYYY-MM-DD).
+- Set estimate_minutes ONLY when the user stated a duration for that task ("about an hour", "20 minutes"); otherwise 0. Never guess an estimate. Never invent deadlines: deadline is "" unless the user stated one (then YYYY-MM-DD).
 - Convert vague goals into one proposed concrete next action and say it's a suggestion.
 
 ## Saved context (context_updates) — be sparing
@@ -52,6 +52,7 @@ Each user turn ends with an <app_state> block written by the app (not by the use
 - plan.window is the working window that day (HH:MM local). plan.work_budget_minutes is the total minutes of the focus and task blocks YOU return in this plan (only those blocks — never add work already done earlier today); if the user states an amount of time for the work, use it and never exceed it. It can't exceed the free time in the window after meetings.
 - blocks: focus and task blocks reference a task via task_ref (an existing task id, or a ref from captured_items). Add short breaks (10–15 min) after long stretches and a buffer (about 10–15% of work time). Include every saved meeting on that date as a meeting block with exactly its saved times and task_ref "". Breaks and buffers use task_ref "".
 - Blocks must not overlap, must stay inside the window, must not overlap meetings, and focus+task minutes must not exceed work_budget_minutes. Times are "HH:MM" 24-hour. For today, don't schedule before the current time.
+- A block with "pinned": true is one the user fixed by naming its time ("call the bank at 3", "deep work 10 to 12"). Set pinned true only for times the user stated; false otherwise. Saved blocks marked pinned in confirmed_plan_today must stay exactly as they are; plan flexible work around them and never move or overlap them.
 - Put the main focus in the best uninterrupted stretch, early unless the user prefers otherwise.
 - When replanning (request_kind "replan"), keep completed work and meetings, schedule only from now, don't duplicate tasks, and keep the focus unless there's a reason to change.
 - reasons: 1–3 short bullets. assumptions: what you assumed.
@@ -215,7 +216,7 @@ export function buildAppState(c: ContextInput): string {
           supporting_task_ids: c.plan.supporting.map((s) => s.taskId),
           window: c.plan.window,
           work_budget_minutes: c.plan.workBudgetMinutes,
-          blocks: c.plan.blocks.map((b) => ({ start: b.start, end: b.end, kind: b.kind, task_id: b.taskId, title: b.title })),
+          blocks: c.plan.blocks.map((b) => ({ start: b.start, end: b.end, kind: b.kind, task_id: b.taskId, title: b.title, ...(b.pinned ? { pinned: true } : {}) })),
         }
       : null,
     pending_unconfirmed_proposal: c.proposal?.plan

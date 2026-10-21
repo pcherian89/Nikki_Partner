@@ -7,18 +7,19 @@ export class AnthropicProvider implements PlannerProvider {
   readonly name = "anthropic";
   private client: Anthropic;
 
-  constructor(apiKey: string, readonly model: string, clientOptions: Partial<ConstructorParameters<typeof Anthropic>[0]> = {}) {
+  constructor(apiKey: string, readonly model: string, clientOptions: Partial<ConstructorParameters<typeof Anthropic>[0]> = {}, opts: { structured?: boolean } = {}) {
+    this.structured = opts.structured ?? process.env.NIKKI_STRUCTURED_OUTPUT === "1";
     // maxRetries: the SDK retries 408/409/429/5xx and connection errors once, with backoff.
     this.client = new Anthropic({ apiKey, timeout: REQUEST_TIMEOUT_MS, maxRetries: 1, ...clientOptions });
   }
 
   /**
-   * Structured outputs are used when the API accepts our schema. If it rejects the
-   * schema itself (e.g. "compiled grammar is too large"), we switch — once, for the
-   * life of the server — to asking for JSON in the instructions. Every reply is
-   * still validated on the server either way.
+   * By default the schema is given in the instructions (our response schema has grown too large for the API's strict
+   * grammar, and strict mode would forbid new optional fields). Opt in with NIKKI_STRUCTURED_OUTPUT=1: if the API then
+   * rejects the schema it falls back to instructions for the life of the server. Every reply is validated on the
+   * server either way.
    */
-  private structured = true;
+  private structured: boolean;
 
   async generate(req: ProviderRequest): Promise<ProviderResult> {
     try {

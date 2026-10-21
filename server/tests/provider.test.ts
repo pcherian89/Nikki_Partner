@@ -53,7 +53,7 @@ test("falls back to JSON instructions when the API rejects the output schema, th
       seen,
     ),
     maxRetries: 0,
-  });
+  }, { structured: true });
   const r1 = await p.generate(req);
   assert.match(r1.text, /Write report/);
   assert.ok(seen[0].output_config.format, "first attempt uses structured output");

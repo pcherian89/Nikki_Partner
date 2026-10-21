@@ -20,6 +20,7 @@ export interface ScheduledBlock {
   kind: "focus" | "task" | "break" | "buffer" | "meeting";
   task_ref: string | null;
   title: string;
+  pinned?: boolean;
 }
 
 const MAX_CHUNK = 90;

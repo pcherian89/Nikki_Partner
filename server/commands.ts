@@ -30,6 +30,18 @@ export function hasBlocks(db: DB, taskId: string, date: string): boolean {
 export function setTaskFields(db: DB, id: string, body: TaskFieldPatch, ctx: CommandCtx): Task {
   const cur = getTask(db, id);
   if (!cur) throw new UserFacingError("Task not found.", 404, "not_found");
+  // The same rules for a button and for chat: nothing is set in the past.
+  const now0 = localNow(ctx.tz);
+  if (body.deadline && body.deadline !== cur.deadline) {
+    const t = body.deadlineTime ?? null;
+    if (body.deadline < now0.date) throw new UserFacingError("That deadline is in the past.", 400, "invalid");
+    if (body.deadline === now0.date && t && t <= now0.time) {
+      throw new UserFacingError("That time has already passed today. Did you mean tomorrow?", 400, "invalid");
+    }
+  }
+  if (body.plannedDate && body.plannedDate !== cur.plannedDate && body.plannedDate < now0.date) {
+    throw new UserFacingError("That day has already passed.", 400, "invalid");
+  }
   return db.transaction(() => {
     let patch = body;
     if (body.status === "done" && cur.status !== "done") {
@@ -179,9 +191,6 @@ export function runAction(db: DB, a: ActionRequest, ctx: CommandCtx): Receipt {
         }
         if (!isValidDate(a.date)) return { ok: false, text: "I didn't understand that date.", taskId: task.id };
         if (a.time && !isValidTime(a.time)) return { ok: false, text: "I didn't understand that time.", taskId: task.id };
-        if (a.date < now.date || (a.date === now.date && a.time && a.time <= now.time)) {
-          return { ok: false, text: `That time has already passed. Did you mean ${a.date === now.date ? "tomorrow" : "a later date"}?`, taskId: task.id };
-        }
         const undoId = saveUndo(db, { kind: "restore", taskId: task.id, patch: { deadline: task.deadline, deadlineTime: task.deadlineTime } });
         setTaskFields(db, task.id, { deadline: a.date, deadlineTime: a.time || null }, ctx);
         return { ok: true, text: `Deadline for ${label}: ${a.date === now.date ? "today" : a.date}${a.time ? ` at ${clock(a.time)}` : ""}.`, taskId: task.id, undoId };
@@ -189,7 +198,6 @@ export function runAction(db: DB, a: ActionRequest, ctx: CommandCtx): Receipt {
       case "move_day": {
         const target = a.date === "someday" ? null : a.date;
         if (target !== null && !isValidDate(target)) return { ok: false, text: "I didn't understand that date.", taskId: task.id };
-        if (target !== null && target < now.date) return { ok: false, text: "That day has already passed.", taskId: task.id };
         // A task with scheduled blocks on today/tomorrow is a schedule change: needs a preview, not a silent move.
         const blocked = [now.date, addDays(now.date, 1)].filter((d) => d !== target && hasBlocks(db, task.id, d));
         if (blocked.length) {

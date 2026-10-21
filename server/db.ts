@@ -209,6 +209,12 @@ export function getDb(ws: Workspace): DB {
   return db;
 }
 
+/** Closes every open connection (used to simulate a restart in tests, and for a clean shutdown). */
+export function closeAll() {
+  for (const db of dbs.values()) db.close();
+  dbs.clear();
+}
+
 /** Adds columns introduced after the first release to existing databases. */
 function migrate(db: DB) {
   const cols = new Set((db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]).map((c) => c.name));

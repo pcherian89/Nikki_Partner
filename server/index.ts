@@ -59,6 +59,8 @@ import {
   removeTaskFromPlan,
   rescheduleTask,
   recordOutcomes,
+  previewOverrun,
+  applyOverrun,
 } from "./planOps.js";
 import { dayHistory } from "./history.js";
 import { ActionRequest, runAction, setTaskFields, undoAction } from "./commands.js";
@@ -424,6 +426,26 @@ app.post(
   }),
 );
 
+/** What would happen if the user keeps going past a planned block (nothing changes). */
+app.get(
+  "/api/tasks/:id/overrun",
+  h((req, res) => {
+    const c = ctx(req);
+    const minutes = Math.min(120, Math.max(5, Number(req.query.minutes) || 15));
+    res.json({ preview: previewOverrun(c.db, String(req.params.id), c.tz, minutes) });
+  }),
+);
+
+app.post(
+  "/api/tasks/:id/overrun",
+  h((req, res) => {
+    const c = ctx(req);
+    const body = parse(z.object({ minutes: z.number().int().min(5).max(120).optional() }), req.body ?? {});
+    const preview = applyOverrun(c.db, String(req.params.id), c.tz, body.minutes ?? 15);
+    res.json({ state: state(req, c), preview });
+  }),
+);
+
 /** Undo from a receipt (toast or chat). */
 app.post(
   "/api/undo/:id",
@@ -641,7 +663,7 @@ app.post(
     const c = ctx(req);
     const body = parse(
       z.object({
-        decisions: z.array(z.object({ taskId: z.string(), action: z.enum(["tomorrow", "date", "done", "someday", "drop"]), date: z.string().refine(isValidDate).optional() })).max(100),
+        decisions: z.array(z.object({ taskId: z.string(), action: z.enum(["tomorrow", "date", "done", "someday", "drop", "keep"]), date: z.string().refine(isValidDate).optional() })).max(100),
         note: z.string().max(4000).default(""),
       }),
       req.body,

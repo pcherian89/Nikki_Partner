@@ -385,3 +385,16 @@ export interface ApiError {
   code?: string;
   details?: string[];
 }
+
+/** What keeping going past a planned block would do to the rest of today. */
+export interface OverrunPreview {
+  needed: boolean;
+  taskId: string;
+  blockEnd: string | null;
+  newEnd: string | null;
+  minutes: number;
+  fixed: { title: string; start: string; pinned: boolean } | null;
+  shifted: { taskId: string | null; title: string; from: string; to: string }[];
+  dropped: { taskId: string | null; title: string }[];
+  capped: boolean;
+}

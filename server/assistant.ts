@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  Plan,
   ContextSuggestion,
   Meeting,
   PlanBlock,
@@ -41,6 +42,7 @@ import { addDays, fromMinutes, weekdayOf, isValidDate, isValidTime, localNow, to
 import { findDuplicate, freeMinutes, validateMeeting, validatePlanDraft } from "./validate.js";
 import { UserFacingError } from "./errors.js";
 import { ActionRequest, recordCreated, runActions } from "./commands.js";
+import { markProvisional, pinnedToKeep } from "./planOps.js";
 import { buildFacts, computeTaskMeta, deadlinesThisWeek, suggestNext } from "./derived.js";
 import type { Viewer } from "./timer.js";
 
@@ -69,6 +71,10 @@ interface Resolved {
 }
 
 const MAX_CAPTURES = 25;
+
+/** An estimate is only accepted if the user's own message gave a duration. */
+const statedDuration = (text: string | undefined) =>
+  text === undefined || /\b\d+(?:\.\d+)?\s*(?:m|min|mins|minutes?|h|hr|hrs|hours?)\b|\b(?:half an hour|an hour|a couple of hours|quarter of an hour)\b/i.test(text);
 
 /** The app's own numbers, so Nikki reports them instead of working them out. */
 function modelFacts(db: DB, tz: string, profile: ReturnType<typeof getProfile>, tasks: Task[]) {
@@ -112,6 +118,10 @@ export function resolveResponse(
     source: Task["source"];
     /** A confirmed plan already exists for today, so a new one only replaces the rest of the day. */
     hasPlanToday?: boolean;
+    /** The confirmed plan for a date, so pinned blocks can be protected. */
+    planOn?: (date: string) => Plan | null;
+    /** What the user typed, to check that an estimate was really stated by them. */
+    userText?: string;
   },
 ): Resolved {
   const notes: string[] = [];
@@ -141,7 +151,7 @@ export function resolveResponse(
       notes: c.notes ?? "",
       type: c.kind,
       status: "open",
-      estimateMinutes: c.estimate_minutes,
+      estimateMinutes: c.estimate_minutes && statedDuration(ctx.userText) ? c.estimate_minutes : null,
       deadline,
       deadlineTime: deadline && c.deadline_time && isValidTime(c.deadline_time) ? c.deadline_time : null,
       priority: c.priority,
@@ -228,8 +238,17 @@ export function resolveResponse(
         taskId: b.kind === "focus" || b.kind === "task" ? resolve(b.task_ref) : null,
         meetingId: b.kind === "meeting" ? (meeting?.id ?? null) : null,
         title: b.title || (b.kind === "break" ? "Break" : b.kind === "buffer" ? "Buffer" : "Work"),
+        ...(b.pinned && (b.kind === "focus" || b.kind === "task") ? { pinned: true } : {}),
       });
     }
+    // Times the user fixed earlier are kept: put them back if the model left them out; overlaps become plan errors it must fix.
+    const existing = ctx.planOn?.(planDate) ?? null;
+    const byId0 = new Map([...ctx.tasks, ...newTasks].map((t) => [t.id, t]));
+    const kept = pinnedToKeep(existing, planDate === ctx.date ? nowMin : -1, byId0, blocks);
+    for (const keep of kept) blocks.push(keep);
+    // Time the user fixed earlier is part of the day's work, not extra to the budget they gave.
+    const keptMinutes = kept.reduce((a, b) => a + toMinutes(b.end) - toMinutes(b.start), 0);
+    blocks.sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
     draft = {
       date: planDate,
       mainOutcome: p.main_outcome,
@@ -240,10 +259,11 @@ export function resolveResponse(
       reasons: p.reasons,
       assumptions: p.assumptions,
       window: p.window,
-      workBudgetMinutes: p.work_budget_minutes,
+      workBudgetMinutes: p.work_budget_minutes + keptMinutes,
       blocks,
     };
     const taskMap = new Map([...ctx.tasks, ...newTasks].map((t) => [t.id, t]));
+    draft.blocks = markProvisional(draft.blocks, taskMap);
     planErrors = validatePlanDraft(draft, {
       meetings: allMeetings,
       tasks: taskMap,
@@ -316,6 +336,8 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
       kind: input.kind,
       source: ws === "demo" ? ("demo" as const) : ("nikki" as const),
       hasPlanToday: !!plan,
+      planOn: (date: string) => currentPlan(db, date),
+      userText: input.text,
     };
 
     let resp: ModelResponse;

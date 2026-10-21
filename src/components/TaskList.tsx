@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { AppState, Plan, Task, TaskPriority, TaskMeta, WorkSession } from "../../shared/types";
+import type { AppState, OverrunPreview, Plan, Task, TaskPriority, TaskMeta, WorkSession } from "../../shared/types";
 import { api, ApiError, serverNowMs } from "../api";
 import type { AppActions } from "../App";
 import { fmtDate, fmtDuration, fmtRange, fmtTime, toMin } from "../util";
@@ -580,6 +580,7 @@ function StopWithTime({ task, elapsed, actions, onClose }: { task: Task; elapsed
 export function ContextBanner({ state, actions, timers, onWrap }: { state: AppState; actions: AppActions; timers: ReturnType<typeof useTimerControls>; onWrap?: () => void }) {
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [checking, setChecking] = useState<WorkSession | null>(null);
+  const [overrun, setOverrun] = useState<{ preview: OverrunPreview; key: string } | null>(null);
   const run = state.running;
   const runTask = run ? state.tasks.find((t) => t.id === run.taskId) : undefined;
   const titleOf = (id: string) => state.tasks.find((t) => t.id === id)?.title ?? "a task";
@@ -610,7 +611,16 @@ export function ContextBanner({ state, actions, timers, onWrap }: { state: AppSt
             <strong>Planned time ended</strong> for “{runTask.title}” at {fmtTime(mine.at(-1)!.end)}.
           </span>
           <span className="row gap wrap">
-            <button className="btn small" onClick={() => setDismissed(key)}>
+            <button
+              className="btn small"
+              onClick={async () => {
+                const r = await call(actions, "GET", `/api/tasks/${runTask.id}/overrun?minutes=15`);
+                const pv: OverrunPreview | undefined = r.ok ? r.res.preview : undefined;
+                // Nothing in the way: keeping going changes nothing. Otherwise show what it would affect.
+                if (pv && (pv.fixed || pv.shifted.length || pv.dropped.length)) setOverrun({ preview: pv, key });
+                else setDismissed(key);
+              }}
+            >
               Keep going
             </button>
             <button className="btn small primary" onClick={() => timers.finish(runTask)}>
@@ -663,9 +673,26 @@ export function ContextBanner({ state, actions, timers, onWrap }: { state: AppSt
       </>
     );
   }
-  if (!banner && !checking) return null;
+  if (!banner && !checking && !overrun) return null;
   return (
     <>
+      {overrun && (
+        <OverrunSheet
+          preview={overrun.preview}
+          title={runTask?.title ?? "this task"}
+          onClose={() => setOverrun(null)}
+          onLeave={() => {
+            setDismissed(overrun.key);
+            setOverrun(null);
+          }}
+          onExtend={async () => {
+            const r = await call(actions, "POST", `/api/tasks/${overrun.preview.taskId}/overrun`, { minutes: overrun.preview.minutes });
+            if (!r.ok) actions.toast({ text: r.err.message, tone: "error", details: r.err.details });
+            else setDismissed(overrun.key);
+            setOverrun(null);
+          }}
+        />
+      )}
       {banner && (
         <div className="banner" role="status">
           {banner}
@@ -673,6 +700,53 @@ export function ContextBanner({ state, actions, timers, onWrap }: { state: AppSt
       )}
       {checking && <CheckSheet session={checking} title={titleOf(checking.taskId)} actions={actions} onClose={() => setChecking(null)} />}
     </>
+  );
+}
+
+/** Keeping going past a planned block: say exactly what it would touch, and offer safe choices. */
+function OverrunSheet({ preview, title, onClose, onLeave, onExtend }: { preview: OverrunPreview; title: string; onClose: () => void; onLeave: () => void; onExtend: () => void }) {
+  return (
+    <FormSheet title={`Keep going on “${title}”`} onClose={onClose}>
+      <div className="sheet-form">
+        {preview.fixed && (
+          <p className="small">
+            <strong>{preview.fixed.title}</strong> {preview.fixed.pinned ? "(a time you set) " : ""}starts at {fmtTime(preview.fixed.start)}.{" "}
+            {preview.capped ? `Extending would stop there, at ${fmtTime(preview.newEnd!)}.` : ""}
+          </p>
+        )}
+        {preview.shifted.length > 0 && (
+          <div className="small">
+            Would move later:
+            <ul className="plain-list">
+              {preview.shifted.map((s, i) => (
+                <li key={i}>
+                  {s.title}: {fmtTime(s.from)} → {fmtTime(s.to)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {preview.dropped.length > 0 && (
+          <div className="small">
+            No longer fits today (stays on your list, unscheduled):
+            <ul className="plain-list">
+              {preview.dropped.map((d, i) => (
+                <li key={i}>{d.title}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <button className="btn primary" onClick={onExtend}>
+          Extend to {fmtTime(preview.newEnd!)} and update the plan
+        </button>
+        <button className="btn" onClick={onLeave}>
+          Keep going, leave the plan as it is
+        </button>
+        <button className="btn ghost" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </FormSheet>
   );
 }
 

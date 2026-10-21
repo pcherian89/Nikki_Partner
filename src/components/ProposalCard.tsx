@@ -32,6 +32,30 @@ const CHANGE_LABELS: Record<string, string> = {
 
 const changeLabel = (c: Proposal["taskChanges"][number]) => (c.change === "update" && c.plannedDate && !c.title && !c.estimateMinutes ? "Move" : CHANGE_LABELS[c.change]);
 
+/** What the plan leaves out and what is at risk, worked out from the app's own facts (never from model prose). */
+export function planGaps(draft: PlanDraft, state: AppState) {
+  const dayIdx = draft.date === state.tomorrow.date ? 1 : 0;
+  const day = state.days[dayIdx];
+  const scheduled = new Set(draft.blocks.filter((b) => (b.kind === "focus" || b.kind === "task") && b.taskId).map((b) => b.taskId!));
+  const byId = new Map(state.tasks.map((t) => [t.id, t]));
+  const why = new Map(draft.deferred.map((d) => [d.taskId, d.why]));
+  const ids = [...new Set([...(day?.openIds ?? []), ...draft.deferred.map((d) => d.taskId)])].filter((id) => byId.get(id)?.status !== "done" && !scheduled.has(id));
+  const notScheduled = ids.map((taskId) => {
+    const t = byId.get(taskId);
+    const reason = why.get(taskId) || (t && t.estimateMinutes == null ? "No estimate, so no time was reserved." : "No free time found.");
+    return { taskId, why: reason.endsWith(".") ? reason : `${reason}.` };
+  });
+  const atRisk: { taskId: string; why: string }[] = [];
+  for (const t of state.tasks) {
+    if (t.status === "done" || t.type !== "action" || !t.deadline) continue;
+    const m = state.taskMeta[t.id];
+    if (m?.deadlineStatus === "overdue") atRisk.push({ taskId: t.id, why: "Its deadline has passed." });
+    else if (m?.deadlineStatus === "at_risk") atRisk.push({ taskId: t.id, why: `About ${fmtDuration(m.shortByMinutes ?? 0)} more than the time before its deadline.` });
+    else if (t.deadline <= draft.date && !scheduled.has(t.id) && (day?.openIds.includes(t.id) || why.has(t.id))) atRisk.push({ taskId: t.id, why: "Due by this day and not scheduled." });
+  }
+  return { notScheduled, atRisk };
+}
+
 const isPhone = () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches;
 
 export function ProposalCard({
@@ -116,6 +140,7 @@ export function ProposalCard({
     return lines;
   }, [draft, state.plan, state.tomorrow.plan, state.tomorrow.date, state.now]);
 
+  const gaps = useMemo(() => (draft ? planGaps(draft, state) : null), [draft, state]);
   const cap = draft ? capacity(draft) : null;
   const overBudget = cap && cap.work > draft!.workBudgetMinutes;
 
@@ -170,6 +195,8 @@ export function ProposalCard({
                 )}
                 <span className="block-title">
                   {b.title}
+                  {b.pinned && <span className="tag subtle">Pinned</span>}
+                  {b.provisional && <span className="tag subtle" title="No estimate was set for this task, so this length is a guess">Provisional</span>}
                 </span>
                 {b.kind !== "meeting" ? (
                   <button className="icon-btn" aria-label={`Remove ${b.title}`} onClick={() => removeBlock(b.id)}>
@@ -199,13 +226,25 @@ export function ProposalCard({
             </div>
           )}
 
-          {draft.deferred.length > 0 && (
-            <details className="deferred">
-              <summary className="section-summary">Deferred ({draft.deferred.length})</summary>
+          {gaps && gaps.atRisk.length > 0 && (
+            <div className="at-risk" role="status">
+              <div className="eyebrow warn-text">At risk</div>
               <ul>
-                {draft.deferred.map((d) => (
+                {gaps.atRisk.map((r) => (
+                  <li key={r.taskId}>
+                    <strong>{tasks.get(r.taskId)?.title}</strong> — <span className="muted">{r.why}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {gaps && gaps.notScheduled.length > 0 && (
+            <details className="deferred">
+              <summary className="section-summary">Not scheduled ({gaps.notScheduled.length})</summary>
+              <ul>
+                {gaps.notScheduled.map((d) => (
                   <li key={d.taskId}>
-                    <strong>{tasks.get(d.taskId)?.title ?? "Unknown"}</strong> — <span className="muted">{d.why}</span>
+                    <strong>{tasks.get(d.taskId)?.title ?? "Unknown"}</strong> — <span className="muted">{d.why} Stays on the day’s list.</span>
                   </li>
                 ))}
               </ul>

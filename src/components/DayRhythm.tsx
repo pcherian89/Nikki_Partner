@@ -1,14 +1,15 @@
 import { useState } from "react";
-import type { AppState, Task } from "../../shared/types";
+import type { AppState, Task, WorkSession } from "../../shared/types";
 import { api, ApiError } from "../api";
 import type { AppActions } from "../App";
 import { fmtDate, fmtDuration } from "../util";
 import { DecisionRow, type MoveChoice } from "./MoveSheet";
 import { UnrecordedBlocks } from "./History";
+import { CheckSheet, dueLabel } from "./TaskList";
 
-type WrapAction = "tomorrow" | "date" | "done" | "someday" | "drop";
-const WRAP_LABELS: Record<WrapAction, string> = { tomorrow: "Tomorrow", date: "Pick a day", done: "Done", someday: "Someday", drop: "Delete" };
-const WRAP_TO_MOVE: Record<WrapAction, MoveChoice> = { tomorrow: "tomorrow", date: "pick", done: "done", someday: "someday", drop: "drop" };
+type WrapAction = "keep" | "tomorrow" | "date" | "done" | "someday" | "drop";
+const WRAP_LABELS: Record<WrapAction, string> = { keep: "Keep on today", tomorrow: "Tomorrow", date: "Pick a day", done: "Done", someday: "Someday", drop: "Delete" };
+const WRAP_TO_MOVE: Record<WrapAction, MoveChoice> = { keep: "today", tomorrow: "tomorrow", date: "pick", done: "done", someday: "someday", drop: "drop" };
 
 function isToday(iso: string, tz: string, today: string) {
   try {
@@ -27,7 +28,7 @@ export function doneTodayTasks(state: AppState) {
 
 /** Open work from today's plan (or the main focus/supporting picks). */
 function unfinishedToday(state: AppState): Task[] {
-  const ids = new Set<string>();
+  const ids = new Set<string>(state.days[0]?.openIds ?? []);
   for (const b of state.plan?.blocks ?? []) if (b.taskId) ids.add(b.taskId);
   if (state.plan?.focusTaskId) ids.add(state.plan.focusTaskId);
   state.plan?.supporting.forEach((s) => ids.add(s.taskId));
@@ -39,12 +40,13 @@ function unfinishedToday(state: AppState): Task[] {
 export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState; actions: AppActions; onClose: () => void; busy: boolean }) {
   const done = doneTodayTasks(state);
   const open = unfinishedToday(state);
-  const [decisions, setDecisions] = useState<Record<string, WrapAction>>(Object.fromEntries(open.map((t) => [t.id, "tomorrow"])));
+  const [decisions, setDecisions] = useState<Record<string, WrapAction>>(Object.fromEntries(open.map((t) => [t.id, "keep" as WrapAction])));
   const [dates, setDates] = useState<Record<string, string>>({});
   const [note, setNote] = useState(state.wrapUpToday?.note ?? "");
   const [reflect, setReflect] = useState(state.workspace === "demo" || state.liveAvailable);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState<WorkSession | null>(null);
   const canReflect = state.workspace === "demo" || state.liveAvailable;
 
   const submit = async () => {
@@ -93,8 +95,9 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
         {done.length ? (
           <ul className="plain-list compact">
             {done.map((t) => (
-              <li key={t.id} className="struck">
-                {t.title}
+              <li key={t.id}>
+                <span className="struck">{t.title}</span>{" "}
+                <span className="muted small">· {t.spentMinutes ? `${fmtDuration(t.spentMinutes)} recorded` : "no time recorded"}</span>
               </li>
             ))}
           </ul>
@@ -103,12 +106,32 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
         )}
       </div>
 
+      {state.checks.length > 0 && (
+        <div className="wrap-section">
+          <div className="eyebrow">Needs a check</div>
+          <p className="muted small">Time that looked uncertain. It isn’t counted until you confirm or correct it.</p>
+          <ul className="plain-list">
+            {state.checks.map((s) => (
+              <li key={s.id} className="row between center-y wrap gap">
+                <span>
+                  {state.tasks.find((t) => t.id === s.taskId)?.title ?? "A task"} <span className="muted small">· {fmtDuration(s.minutes)}</span>
+                </span>
+                <button className="btn small" onClick={() => setChecking(s)}>
+                  Confirm or correct
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {checking && <CheckSheet session={checking} title={state.tasks.find((t) => t.id === checking.taskId)?.title ?? "A task"} actions={actions} onClose={() => setChecking(null)} />}
+
       <UnrecordedBlocks state={state} actions={actions} />
 
       {open.length > 0 && (
         <div className="wrap-section">
           <div className="eyebrow">Still open</div>
-          <p className="muted small">These move to tomorrow unless you change them.</p>
+          <p className="muted small">Nothing moves unless you choose. Anything left on today shows up under “from earlier” tomorrow.</p>
           <ul className="plain-list decisions">
             {open.map((t) => (
               <DecisionRow
@@ -116,7 +139,7 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
                 title={t.title}
                 value={decisions[t.id]}
                 labels={WRAP_LABELS}
-                choices={["tomorrow", "date", "someday", "done", "drop"]}
+                choices={["keep", "tomorrow", "date", "someday", "done", "drop"]}
                 toMove={WRAP_TO_MOVE}
                 minDate={state.today}
                 date={dates[t.id]}
@@ -129,6 +152,8 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
           </ul>
         </div>
       )}
+
+      <DeadlineReview state={state} />
 
       <label className="field">
         <span>Notes for tomorrow (optional)</span>
@@ -154,6 +179,32 @@ export function WrapUpPanel({ state, actions, onClose, busy }: { state: AppState
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Deadlines missed, and those coming in the next few days. Information only. */
+function DeadlineReview({ state }: { state: AppState }) {
+  const soon = (d: string) => d >= state.today && d <= new Date(new Date(`${state.today}T12:00:00Z`).getTime() + 3 * 86400000).toISOString().slice(0, 10);
+  const open = state.tasks.filter((t) => t.status !== "done" && t.deadline);
+  const missed = open.filter((t) => state.taskMeta[t.id]?.deadlineStatus === "overdue");
+  const coming = open.filter((t) => !missed.includes(t) && soon(t.deadline!));
+  if (!missed.length && !coming.length) return null;
+  return (
+    <div className="wrap-section">
+      <div className="eyebrow">Deadlines</div>
+      <ul className="plain-list compact">
+        {missed.map((t) => (
+          <li key={t.id}>
+            <span className="tag warn">Missed</span> {t.title} <span className="muted small">· {dueLabel(t, state.today)}</span>
+          </li>
+        ))}
+        {coming.map((t) => (
+          <li key={t.id}>
+            <span className="tag subtle">Coming</span> {t.title} <span className="muted small">· {dueLabel(t, state.today)}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

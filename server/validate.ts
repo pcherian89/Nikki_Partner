@@ -69,7 +69,8 @@ export function validatePlanDraft(d: PlanDraft, ctx: PlanCheckContext): string[]
     // Calendar events may overlap each other; work blocks may not overlap anything.
     if (p.kind === "meeting" && c.kind === "meeting") continue;
     if (toMinutes(c.start) < toMinutes(p.end)) {
-      errors.push(`Blocks overlap: "${p.title}" (${p.start}–${p.end}) and "${c.title}" (${c.start}–${c.end}).`);
+      const fixed = p.pinned || c.pinned ? " One of them is pinned (the user set that time), so move the other." : "";
+      errors.push(`Blocks overlap: "${p.title}" (${p.start}–${p.end}) and "${c.title}" (${c.start}–${c.end}).${fixed}`);
     }
   }
 

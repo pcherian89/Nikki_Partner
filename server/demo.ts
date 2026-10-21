@@ -380,7 +380,7 @@ function proposeFromInfo(
     ],
     window,
     work_budget_minutes: Number.isFinite(budget) ? budget : Math.max(workPlanned, 0),
-    blocks: sched.blocks,
+    blocks: sched.blocks.map((b) => ({ ...b, pinned: false })),
     reasons: [
       `${focus.title} first, while you're freshest.`,
       supporting.length ? `${supporting.map((c) => c.title).join(" and ")} after that, in the time left.` : "Nothing else fits without cutting into the main focus.",
@@ -450,7 +450,7 @@ function demoReplan(input: DemoInput): DemoResult {
     deferred: items.filter((i) => !placed.has(i.ref)).map((i) => ({ task_ref: i.ref, why: "Not enough time left today." })),
     window,
     work_budget_minutes: budget,
-    blocks: sched.blocks.filter((b) => b.kind !== "meeting" || toMinutes(b.end) > startMin),
+    blocks: sched.blocks.filter((b) => b.kind !== "meeting" || toMinutes(b.end) > startMin).map((b) => ({ ...b, pinned: false })),
     reasons: [
       completed.length ? `Done so far: ${completed.map((t) => t.title).join(", ")}.` : "Nothing marked done yet — that's fine.",
       `Remaining time from ${fromMinutes(startMin)} to ${until}, around fixed meetings.`,
@@ -491,7 +491,7 @@ function demoPlanTomorrow(input: DemoInput): DemoResult {
     deferred: open.slice(3).map((x) => ({ task_ref: x.id, why: "Not enough room tomorrow." })),
     window,
     work_budget_minutes: budget,
-    blocks: sched.blocks,
+    blocks: sched.blocks.map((b) => ({ ...b, pinned: false })),
     reasons: ["A head start: tomorrow's plan is ready before the day begins."],
     assumptions: [`You'll work ${start}–${end} tomorrow${isValidTime(input.profile.workStart) ? " (your usual hours)" : ""}.`],
   };

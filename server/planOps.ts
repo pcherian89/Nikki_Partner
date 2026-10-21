@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AppState, PlanBlock, PlanDraft, Profile, Task, Workspace } from "../shared/types.js";
+import type { AppState, OverrunPreview, Plan, PlanBlock, PlanDraft, Profile, Task, Workspace } from "../shared/types.js";
 import { CONTEXT_FIELDS } from "../shared/types.js";
 import { UserFacingError } from "./assistant.js";
 import { config } from "./config.js";
@@ -147,6 +147,8 @@ const BlockInput = z.object({
   taskId: z.string().nullable().optional(),
   meetingId: z.string().nullable().optional(),
   title: z.string().max(300),
+  pinned: z.boolean().optional(),
+  provisional: z.boolean().optional(),
 });
 
 export const PlanDraftInput = z.object({
@@ -174,8 +176,36 @@ function normaliseDraft(date: string, input: z.infer<typeof PlanDraftInput>): Pl
       taskId: b.taskId ?? null,
       meetingId: b.meetingId ?? null,
       title: b.title,
+      ...(b.pinned ? { pinned: true } : {}),
+      ...(b.provisional ? { provisional: true } : {}),
     })),
   };
+}
+
+/** A block for a task with no estimate and no recorded time is a guess, so it is labelled "provisional". */
+export function markProvisional(blocks: PlanBlock[], tasks: Map<string, Task>): PlanBlock[] {
+  return blocks.map((b) => {
+    if (!WORK_KINDS.has(b.kind) || !b.taskId) return b;
+    const t = tasks.get(b.taskId);
+    const guess = !!t && t.estimateMinutes == null && t.spentMinutes === 0;
+    const { provisional: _p, ...rest } = b;
+    return guess ? { ...rest, provisional: true } : rest;
+  });
+}
+
+/**
+ * Blocks the user fixed by stating or editing a time. They are protected like commitments: a new plan keeps the ones
+ * still ahead (unless the task is done or the new plan already covers it). Returns the ones to keep.
+ */
+export function pinnedToKeep(current: Plan | null, nowMin: number, tasks: Map<string, Task>, newBlocks: PlanBlock[]): PlanBlock[] {
+  return (current?.blocks ?? []).filter((b) => {
+    if (!b.pinned || !WORK_KINDS.has(b.kind) || !b.taskId) return false;
+    if (toMinutes(b.end) <= nowMin) return false;
+    const t = tasks.get(b.taskId);
+    if (!t || t.status === "done") return false;
+    // Already covered: the new plan has this task's block at the same start.
+    return !newBlocks.some((n) => n.taskId === b.taskId && n.start === b.start);
+  });
 }
 
 const sortBlocks = (blocks: PlanBlock[]) => [...blocks].sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
@@ -239,6 +269,15 @@ export function confirmProposal(
         const parsed = PlanDraftInput.safeParse(opts.plan);
         if (!parsed.success) throw new UserFacingError("The edited plan is malformed.", 400, "invalid", parsed.error.issues.map((i) => i.message));
         draft = normaliseDraft(p.date, parsed.data);
+        // Times the user changed while reviewing the proposal are theirs: pin them.
+        const proposed = new Map(p.plan.blocks.map((b) => [b.id, b]));
+        draft = {
+          ...draft,
+          blocks: draft.blocks.map((b) => {
+            const o = proposed.get(b.id);
+            return WORK_KINDS.has(b.kind) && o && (o.start !== b.start || o.end !== b.end) ? { ...b, pinned: true } : b;
+          }),
+        };
       }
       const current = currentPlan(db, p.date);
       const tasks = taskMap(db);
@@ -261,7 +300,10 @@ export function confirmProposal(
           if (cut - toMinutes(b.start) >= 5) preserved.push({ ...b, end: fromMinutes(cut) });
         }
       }
-      const { meetings, blocks } = withMeetingBlocks(db, p.date, [...preserved, ...newBlocks]);
+      // Blocks the user pinned stay unless the user removed them while editing this proposal.
+      const keepPinned = opts.plan === undefined ? pinnedToKeep(current, nowMin, tasks, newBlocks) : [];
+      const { meetings, blocks: rawBlocks } = withMeetingBlocks(db, p.date, [...preserved, ...keepPinned.filter((b) => !preserved.some((x) => x.id === b.id)), ...newBlocks]);
+      const blocks = markProvisional(rawBlocks, tasks);
       const windowStart = [draft.window.start, ...preserved.map((b) => b.start)].filter(isValidTime).sort()[0] ?? draft.window.start;
       const windowEnd = [draft.window.end, ...preserved.map((b) => b.end)].filter(isValidTime).sort().pop() ?? draft.window.end;
       // The budget follows from the blocks: never the model's figure plus work already done (that counted it twice).
@@ -546,7 +588,14 @@ export function editPlan(db: DB, input: { expectedVersion: number; plan: unknown
   if (!parsed.success) throw new UserFacingError("The edited plan is malformed.", 400, "invalid", parsed.error.issues.map((i) => i.message));
   const date = input.date === addDays(now.date, 1) ? input.date : now.date;
   const draft = normaliseDraft(date, parsed.data);
-  const { meetings, blocks } = withMeetingBlocks(db, date, draft.blocks);
+  const before = new Map((currentPlan(db, date)?.blocks ?? []).map((b) => [b.id, b]));
+  // Setting or changing a time by hand fixes the block: Nikki's replans will keep it.
+  const touched = draft.blocks.map((b) => {
+    const old = before.get(b.id);
+    return WORK_KINDS.has(b.kind) && old && (old.start !== b.start || old.end !== b.end) ? { ...b, pinned: true } : b;
+  });
+  const { meetings, blocks: rawBlocks } = withMeetingBlocks(db, date, touched);
+  const blocks = markProvisional(rawBlocks, taskMap(db));
   // The budget follows from the blocks, so moving or stretching one never trips an internal budget check.
   const free = Number.isFinite(toMinutes(draft.window.end) - toMinutes(draft.window.start)) ? freeMinutes(draft.window, meetings) : draft.workBudgetMinutes;
   const final = { ...draft, blocks, workBudgetMinutes: Math.min(free, Math.max(draft.workBudgetMinutes, workMinutes({ blocks }))) };
@@ -633,7 +682,7 @@ export function doneToday(db: DB, timezone: string) {
   );
 }
 
-export type WrapDecision = { taskId: string; action: "tomorrow" | "date" | "done" | "someday" | "drop"; date?: string };
+export type WrapDecision = { taskId: string; action: "tomorrow" | "date" | "done" | "someday" | "drop" | "keep"; date?: string };
 
 /** Evening wrap-up: applies decisions about unfinished work and saves a journal entry. No model call. */
 export function wrapUpDay(db: DB, input: { decisions: WrapDecision[]; note: string }, timezone: string) {
@@ -661,6 +710,7 @@ export function wrapUpDay(db: DB, input: { decisions: WrapDecision[]; note: stri
       tomorrow.length ? `${tomorrow.length} moving to tomorrow` : "",
       input.decisions.filter((d) => d.action === "someday").length ? `${input.decisions.filter((d) => d.action === "someday").length} for someday` : "",
       input.decisions.filter((d) => d.action === "drop").length ? `${input.decisions.filter((d) => d.action === "drop").length} dropped` : "",
+      input.decisions.filter((d) => d.action === "keep").length ? `${input.decisions.filter((d) => d.action === "keep").length} left for you to decide tomorrow` : "",
     ].filter(Boolean);
     addMessage(db, { role: "assistant", text: `Day wrapped up: ${parts.join(", ")}.`, meta: { system: true, kind: "wrapup" } });
     return entry;
@@ -714,4 +764,100 @@ export function recordOutcomes(db: DB, date: string, inputs: OutcomeInput[], tim
       if (minutes) addConfirmedSession(db, { taskId: o.taskId, date, minutes, blockStart: o.start });
     }
   })();
+}
+
+// ---------- running past a planned block ----------
+
+export type { OverrunPreview };
+
+const isFixed = (b: PlanBlock) => b.kind === "meeting" || !!b.pinned;
+
+/** Works out what extending the block the user is still working in would do to the rest of today's plan. */
+function overrunPlan(db: DB, taskId: string, timezone: string, minutes: number) {
+  const now = localNow(timezone);
+  const nowMin = toMinutes(now.time);
+  const plan = currentPlan(db, now.date);
+  const empty: OverrunPreview = { needed: false, taskId, blockEnd: null, newEnd: null, minutes, fixed: null, shifted: [], dropped: [], capped: false };
+  if (!plan) return { plan: null, preview: empty, blocks: [] as PlanBlock[] };
+  const mine = plan.blocks.filter((b) => b.taskId === taskId && WORK_KINDS.has(b.kind) && toMinutes(b.start) <= nowMin);
+  const block = mine.sort((a, b) => toMinutes(b.end) - toMinutes(a.end))[0];
+  // Planned time must have ended, and no later block of the same task takes over.
+  if (!block || toMinutes(block.end) > nowMin || plan.blocks.some((b) => b.taskId === taskId && toMinutes(b.start) >= toMinutes(block.end) && WORK_KINDS.has(b.kind) && toMinutes(b.start) <= nowMin + minutes)) {
+    return { plan, preview: empty, blocks: plan.blocks };
+  }
+  const windowEnd = toMinutes(plan.window.end);
+  let newEnd = Math.min(nowMin + minutes, windowEnd);
+  const later = plan.blocks.filter((b) => b.id !== block.id && toMinutes(b.start) >= toMinutes(block.end)).sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+  const fixedAhead = later.filter(isFixed).find((b) => toMinutes(b.start) < newEnd);
+  let capped = false;
+  if (fixedAhead) {
+    newEnd = Math.max(toMinutes(block.end), toMinutes(fixedAhead.start));
+    capped = true;
+  }
+  const fixedBlocks = later.filter(isFixed);
+  const result: PlanBlock[] = plan.blocks.filter((b) => b.id !== block.id && toMinutes(b.start) < toMinutes(block.end));
+  result.push({ ...block, end: fromMinutes(newEnd) });
+  const shifted: OverrunPreview["shifted"] = [];
+  const dropped: OverrunPreview["dropped"] = [];
+  let cursor = newEnd;
+  for (const b of later) {
+    if (isFixed(b)) {
+      result.push(b);
+      cursor = Math.max(cursor, toMinutes(b.end));
+      continue;
+    }
+    if (toMinutes(b.start) >= cursor) {
+      result.push(b);
+      cursor = toMinutes(b.end);
+      continue;
+    }
+    if (b.kind === "break" || b.kind === "buffer") continue; // slack absorbs the overrun
+    const dur = toMinutes(b.end) - toMinutes(b.start);
+    let start = cursor;
+    for (const f of fixedBlocks) if (start < toMinutes(f.end) && start + dur > toMinutes(f.start)) start = toMinutes(f.end);
+    if (start + dur > windowEnd) {
+      dropped.push({ taskId: b.taskId, title: b.title });
+      continue;
+    }
+    result.push({ ...b, start: fromMinutes(start), end: fromMinutes(start + dur) });
+    shifted.push({ taskId: b.taskId, title: b.title, from: b.start, to: fromMinutes(start) });
+    cursor = start + dur;
+  }
+  const preview: OverrunPreview = {
+    needed: true,
+    taskId,
+    blockEnd: block.end,
+    newEnd: fromMinutes(newEnd),
+    minutes,
+    fixed: fixedAhead ? { title: fixedAhead.title, start: fixedAhead.start, pinned: fixedAhead.kind !== "meeting" } : null,
+    shifted,
+    dropped,
+    capped,
+  };
+  return { plan, preview, blocks: result };
+}
+
+export function previewOverrun(db: DB, taskId: string, timezone: string, minutes = 15): OverrunPreview {
+  return overrunPlan(db, taskId, timezone, minutes).preview;
+}
+
+/** Applies the extension shown by previewOverrun as a new plan version (the old one stays in history). */
+export function applyOverrun(db: DB, taskId: string, timezone: string, minutes = 15) {
+  const { plan, preview, blocks } = overrunPlan(db, taskId, timezone, minutes);
+  if (!plan || !preview.needed) throw new UserFacingError("There's no planned time to extend for this task.", 409, "nothing_to_extend");
+  const { id: _i, version: _v, status: _s, createdAt: _c, proposalId: _p, source: _so, ...draft } = plan;
+  const sorted = sortBlocks(blocks);
+  const final: PlanDraft = { ...draft, blocks: sorted, workBudgetMinutes: Math.max(draft.workBudgetMinutes, workMinutes({ blocks: sorted })) };
+  const meetings = listMeetings(db, plan.date);
+  const free = freeMinutes(final.window, meetings);
+  final.workBudgetMinutes = Math.min(free, final.workBudgetMinutes);
+  const errors = validatePlanDraft(final, { meetings, tasks: taskMap(db) });
+  if (errors.length) throw new UserFacingError("That change doesn't fit the plan.", 422, "invalid_plan", errors);
+  try {
+    savePlanVersion(db, final, { expectedVersion: plan.version, proposalId: null, source: "user-edit" });
+  } catch (e) {
+    if (e instanceof StalePlanError) throw new UserFacingError("The plan changed meanwhile. Try again.", 409, "stale");
+    throw e;
+  }
+  return preview;
 }

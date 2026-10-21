@@ -125,13 +125,14 @@ export const RESPONSE_JSON_SCHEMA = {
               items: {
                 type: "object",
                 additionalProperties: false,
-                required: ["start", "end", "kind", "task_ref", "title"],
+                required: ["start", "end", "kind", "task_ref", "title", "pinned"],
                 properties: {
                   start: str,
                   end: str,
                   kind: { type: "string", enum: ["focus", "task", "break", "buffer", "meeting"] },
                   task_ref: str,
                   title: str,
+                  pinned: { type: "boolean" },
                 },
               },
             },
@@ -220,6 +221,7 @@ export const ModelResponse = z.object({
           kind: z.enum(["focus", "task", "break", "buffer", "meeting"]),
           task_ref: optStr,
           title: z.string(),
+          pinned: z.boolean().optional().default(false),
         }),
       ),
       reasons: z.array(z.string()),
