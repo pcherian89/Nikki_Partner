@@ -1,3 +1,4 @@
+import { NotificationsCard } from "./Reminders";
 import { useEffect, useMemo, useState } from "react";
 import type { AppState, Profile } from "../../shared/types";
 import { api, browserTimezone } from "../api";
@@ -113,6 +114,7 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
 
       <Calendars state={state} actions={actions} />
       <NikkiInCalendar state={state} actions={actions} />
+      <NotificationsCard state={state} actions={actions} />
 
       <div className="card">
         <h2 className="h3">Pace</h2>

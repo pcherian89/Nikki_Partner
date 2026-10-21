@@ -147,6 +147,37 @@ CREATE TABLE IF NOT EXISTS block_outcomes (
   decided_at TEXT NOT NULL,
   PRIMARY KEY (date, task_id, start)
 );
+-- Something to remember at a time. Not a task, a deadline, a scheduled block or a commitment.
+CREATE TABLE IF NOT EXISTS reminders (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  task_id TEXT,
+  project_id TEXT,
+  remind_at TEXT NOT NULL,
+  anchor TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  source TEXT NOT NULL DEFAULT 'user',
+  created_at TEXT NOT NULL,
+  fired_at TEXT,
+  done_at TEXT,
+  channels TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (status, remind_at);
+-- Devices that allowed notifications when the app is closed. Never exported.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  client_id TEXT,
+  created_at TEXT NOT NULL,
+  last_ok_at TEXT,
+  failures INTEGER NOT NULL DEFAULT 0
+);
+-- Server-only secrets (push signing keys). Never exported.
+CREATE TABLE IF NOT EXISTS secrets (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS requests (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL,
@@ -158,7 +189,7 @@ CREATE TABLE IF NOT EXISTS requests (
 const dbs = new Map<Workspace, DB>();
 
 /** Bump when the stored layout changes. Existing databases are copied aside before they are migrated. */
-const SCHEMA_VERSION = 3; // 2: work_sessions, block_outcomes. 3: priority, optional, deadline_time, verified sessions, pinned/provisional blocks
+export const SCHEMA_VERSION = 4; // 4: reminders, push_subscriptions, secrets. 2: work_sessions, block_outcomes. 3: priority, optional, deadline_time, verified sessions, pinned/provisional blocks
 const KEEP_SNAPSHOTS = 5;
 
 /**
@@ -265,6 +296,7 @@ export const TABLES = [
   "plan_blocks",
   "work_sessions",
   "block_outcomes",
+  "reminders",
   "requests",
   "settings",
 ];
@@ -272,7 +304,7 @@ export const TABLES = [
 /** Wipes every table in a workspace (used for Reset demo / Delete my data). */
 export function wipe(db: DB) {
   db.transaction(() => {
-    for (const t of TABLES) {
+    for (const t of [...TABLES, "push_subscriptions"]) {
       db.prepare(`DELETE FROM ${t}`).run();
     }
   })();

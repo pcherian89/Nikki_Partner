@@ -17,6 +17,7 @@ const { app } = await import("../index.js");
 const { setProvider } = await import("../provider/index.js");
 const { getDb, wipe, createTask, savePlanVersion } = await import("../db.js");
 const { dayHistory } = await import("../history.js");
+const { SCHEMA_VERSION } = await import("../db.js");
 
 const DAY = "2026-10-21";
 const TZ = "UTC";
@@ -393,7 +394,7 @@ test("migration: an existing database is copied aside first and its data is unto
       console.log(JSON.stringify({ version: db.pragma("user_version", { simple: true }), tables, titles: db.prepare("SELECT title FROM tasks").all().map((r) => r.title) }));
     `);
     const info = JSON.parse(out.trim().split("\n").pop()!);
-    assert.equal(info.version, 3);
+    assert.equal(info.version, SCHEMA_VERSION);
     assert.ok(info.tables.includes("work_sessions") && info.tables.includes("block_outcomes"));
     assert.deepEqual(info.titles, ["Existing task"], "existing tasks survive");
     const baks = fs.readdirSync(dir).filter((f) => f.endsWith(".bak"));

@@ -133,6 +133,15 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [ws, load, pending]);
 
+  // Reminders come due while the app is open: refresh the saved state quietly (never calls the model).
+  useEffect(() => {
+    if (!ws) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible" && !pending) load();
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [ws, load, pending]);
+
   const switchWorkspace = useCallback((next: Workspace) => {
     try {
       localStorage.setItem(WS_KEY, next);

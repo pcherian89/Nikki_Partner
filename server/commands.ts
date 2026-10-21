@@ -6,6 +6,7 @@ import { removeTaskFromPlan, rescheduleTask } from "./planOps.js";
 import { finishTask, reportSession, startTimer, stopTimer, type Viewer } from "./timer.js";
 import { addDays, isValidDate, isValidTime, localNow } from "./time.js";
 import { findDuplicate } from "./validate.js";
+import { cancelReminder, completeReminder, createReminder, dropAnchoredForTask, editReminder, reanchorForTask, snoozeReminder, type ReminderTime } from "./reminders.js";
 
 /**
  * The one set of task actions. HTTP routes (buttons) and Nikki's chat both call these, so they share validation.
@@ -52,6 +53,9 @@ export function setTaskFields(db: DB, id: string, body: TaskFieldPatch, ctx: Com
     if (patch.deadline === null) patch = { ...patch, deadlineTime: null };
     const t = updateTask(db, id, patch);
     if (!t) throw new UserFacingError("Task not found.", 404, "not_found");
+    // Reminders that count down to this task's deadline follow it (or go if it is done).
+    if (body.status === "done" && cur.status !== "done") dropAnchoredForTask(db, id);
+    else if (patch.deadline !== undefined || patch.deadlineTime !== undefined) reanchorForTask(db, id, ctx.tz);
     if (body.plannedDate !== undefined) {
       const now = localNow(ctx.tz);
       for (const d of [now.date, addDays(now.date, 1)]) {
@@ -67,8 +71,14 @@ export function setTaskFields(db: DB, id: string, body: TaskFieldPatch, ctx: Com
 // ---------- chat actions ----------
 
 export const ActionRequest = z.object({
-  type: z.enum(["start", "pause", "finish", "report_time", "set_priority", "set_optional", "set_deadline", "move_day", "reopen"]),
-  task_id: z.string(),
+  type: z.enum(["start", "pause", "finish", "report_time", "set_priority", "set_optional", "set_deadline", "move_day", "reopen", "create_reminder", "edit_reminder", "complete_reminder", "cancel_reminder", "snooze_reminder"]),
+  task_id: z.string().optional().default(""),
+  reminder_id: z.string().optional().default(""),
+  title: z.string().optional().default(""),
+  /** create_reminder: count from the task's deadline (whole days / minutes before). */
+  offset_days: z.number().int().min(0).max(365).optional().default(0),
+  offset_minutes: z.number().int().min(0).max(525600).optional().default(0),
+  from_deadline: z.boolean().optional().default(false),
   minutes: z.number().int().min(0).max(1440).optional().default(0),
   from: z.string().optional().default(""),
   to: z.string().optional().default(""),
@@ -92,6 +102,7 @@ const clock = (t: string) => {
 
 type UndoRecord =
   | { kind: "restore"; taskId: string; patch: Partial<Task> }
+  | { kind: "cancel_reminder"; id: string }
   | { kind: "delete"; taskIds: string[] };
 
 function saveUndo(db: DB, rec: UndoRecord): string {
@@ -114,6 +125,10 @@ export function undoAction(db: DB, undoId: string, ctx: CommandCtx): string {
     }
     return rec.taskIds.length === 1 ? "Removed." : `Removed ${rec.taskIds.length} tasks.`;
   }
+  if (rec.kind === "cancel_reminder") {
+    cancelReminder(db, rec.id, ctx.tz);
+    return "Reminder removed.";
+  }
   const cur = getTask(db, rec.taskId);
   if (!cur) throw new UserFacingError("That task no longer exists.", 404, "not_found");
   updateTask(db, rec.taskId, rec.patch);
@@ -127,7 +142,51 @@ export function recordCreated(db: DB, ids: string[]): string | undefined {
 const PRIORITY_WORD: Record<TaskPriority, string> = { high: "High", normal: "Normal", low: "Low" };
 
 /** Runs one action and returns its receipt. Never throws: a refusal is a receipt with ok=false. */
+const fmtWhen = (r: { localDate: string; localTime: string }, today: string, tomorrow: string) =>
+  `${r.localDate === today ? "today" : r.localDate === tomorrow ? "tomorrow" : r.localDate} at ${clock(r.localTime)}`;
+
+function runReminderAction(db: DB, a: ActionRequest, ctx: CommandCtx): Receipt {
+  const now = localNow(ctx.tz);
+  const tomorrow = addDays(now.date, 1);
+  const label = (t: string) => `“${clip(t)}”`;
+  try {
+    switch (a.type) {
+      case "create_reminder": {
+        if (!a.title.trim()) return { ok: false, text: "What should the reminder say?" };
+        const when: ReminderTime =
+          a.from_deadline && a.task_id
+            ? { anchor: { kind: "task_deadline", id: a.task_id, offsetMinutes: a.offset_minutes || a.offset_days * 1440, atTime: a.time || null } }
+            : { date: a.date || now.date, time: a.time || null };
+        if (!a.from_deadline && !a.date) return { ok: false, text: "Which day should I remind you?" };
+        const { reminder, created } = createReminder(db, { title: a.title, taskId: a.task_id || null, when, source: "nikki" }, ctx.tz);
+        if (!created) return { ok: true, text: `You already have that reminder: ${label(reminder.title)} ${fmtWhen(reminder, now.date, tomorrow)}.` };
+        return { ok: true, text: `Reminder set: ${label(reminder.title)} ${fmtWhen(reminder, now.date, tomorrow)}.`, undoId: saveUndo(db, { kind: "cancel_reminder", id: reminder.id }) };
+      }
+      case "edit_reminder": {
+        const r = editReminder(db, a.reminder_id, { title: a.title || undefined, when: a.date ? { date: a.date, time: a.time || null } : undefined }, ctx.tz);
+        return { ok: true, text: `Updated: ${label(r.title)} ${fmtWhen(r, now.date, tomorrow)}.` };
+      }
+      case "complete_reminder": {
+        const r = completeReminder(db, a.reminder_id, ctx.tz);
+        return { ok: true, text: `Done: ${label(r.title)}.` };
+      }
+      case "cancel_reminder": {
+        const r = cancelReminder(db, a.reminder_id, ctx.tz);
+        return { ok: true, text: `Cancelled the reminder ${label(r.title)}.` };
+      }
+      default: {
+        const r = snoozeReminder(db, a.reminder_id, a.minutes || 60, ctx.tz);
+        return { ok: true, text: `Snoozed: ${label(r.title)} → ${fmtWhen(r, now.date, tomorrow)}.` };
+      }
+    }
+  } catch (e) {
+    if (e instanceof UserFacingError) return { ok: false, text: `Not done: ${e.message}` };
+    throw e;
+  }
+}
+
 export function runAction(db: DB, a: ActionRequest, ctx: CommandCtx): Receipt {
+  if (a.type.endsWith("_reminder")) return runReminderAction(db, a, ctx);
   const task = getTask(db, a.task_id);
   if (!task) return { ok: false, text: "That task wasn't found." };
   const label = `“${clip(task.title)}”`;
@@ -207,6 +266,8 @@ export function runAction(db: DB, a: ActionRequest, ctx: CommandCtx): Receipt {
         setTaskFields(db, task.id, { plannedDate: target }, ctx);
         return { ok: true, text: `${label} → ${target === null ? "Someday" : target === now.date ? "Today" : target === addDays(now.date, 1) ? "Tomorrow" : target}.`, taskId: task.id, undoId };
       }
+      default:
+        return { ok: false, text: "I can't do that yet." };
     }
   } catch (e) {
     if (e instanceof UserFacingError) {

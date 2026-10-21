@@ -7,6 +7,7 @@ import { fmtDate, fmtDuration, fmtRange, fmtTime, toMin } from "../util";
 import { ActionSheet, MoveSheet, type SheetAction } from "./MoveSheet";
 import { StepList, useTimerMinutes } from "./TaskTools";
 import { useMoveTask } from "./Today";
+import { ReminderSheet } from "./Reminders";
 
 const WORK = new Set(["focus", "task"]);
 
@@ -241,7 +242,7 @@ export function TaskRow({
   isToday: boolean;
 }) {
   const [menu, setMenu] = useState(false);
-  const [sheet, setSheet] = useState<null | "priority" | "deadline" | "time" | "move">(null);
+  const [sheet, setSheet] = useState<null | "priority" | "deadline" | "time" | "move" | "remind">(null);
   const minutes = useTimerMinutes(task);
   const running = !!task.timerStartedAt;
   const move = useMoveTask(state, actions, onToggle);
@@ -264,6 +265,7 @@ export function TaskRow({
     { label: "Priority…", run: () => setSheet("priority") },
     { label: task.optional ? "Not “if time allows”" : "Mark “if time allows”", run: () => actions.mutate("PATCH", `/api/tasks/${task.id}`, { optional: !task.optional }) },
     { label: task.deadline ? "Change deadline…" : "Set a deadline…", run: () => setSheet("deadline") },
+    { label: "Remind me…", run: () => setSheet("remind") },
     { label: "Move…", run: () => setSheet("move") },
     ...(running ? [{ label: "Finish", run: () => timers.finish(task) }] : []),
     { label: "Break it down", run: () => actions.openHelper(task.id, "breakdown") },
@@ -305,6 +307,7 @@ export function TaskRow({
         />
       )}
       {sheet === "deadline" && <DeadlineSheet task={task} state={state} actions={actions} onClose={() => setSheet(null)} />}
+      {sheet === "remind" && <ReminderSheet state={state} actions={actions} task={task} onClose={() => setSheet(null)} />}
       {sheet === "time" && <AddTimeSheet task={task} state={state} actions={actions} onClose={() => setSheet(null)} />}
       {sheet === "move" && (
         <MoveSheet

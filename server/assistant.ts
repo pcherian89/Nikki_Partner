@@ -43,6 +43,7 @@ import { findDuplicate, freeMinutes, validateMeeting, validatePlanDraft } from "
 import { UserFacingError } from "./errors.js";
 import { ActionRequest, recordCreated, runActions } from "./commands.js";
 import { markProvisional, pinnedToKeep } from "./planOps.js";
+import { activeReminders } from "./reminders.js";
 import { buildFacts, computeTaskMeta, deadlinesThisWeek, suggestNext } from "./derived.js";
 import type { Viewer } from "./timer.js";
 
@@ -86,6 +87,7 @@ function modelFacts(db: DB, tz: string, profile: ReturnType<typeof getProfile>, 
   const atRisk = open.filter((t) => ["at_risk", "overdue"].includes(meta[t.id]?.deadlineStatus ?? "")).map((t) => ({ task_id: t.id, status: meta[t.id].deadlineStatus, short_by_minutes: meta[t.id].shortByMinutes ?? null }));
   const running = tasks.find((t) => t.timerStartedAt);
   return {
+    reminders: activeReminders(db, tz).slice(0, 15).map((r) => ({ id: r.id, title: r.title, when: `${r.localDate} ${r.localTime}`, status: r.status, ...(r.taskId ? { task_id: r.taskId } : {}) })),
     running_timer: running ? { task_id: running.id, title: running.title } : null,
     urgent_first: next ? { task_id: next.taskId, title: title(next.taskId), reason: next.reason } : null,
     at_risk_or_overdue: atRisk,

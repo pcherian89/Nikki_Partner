@@ -356,6 +356,8 @@ export interface AppState {
   running: RunningTimer | null;
   /** Uncertain timer time waiting for the user to confirm or correct. */
   checks: WorkSession[];
+  reminders: Reminder[];
+  notifications: NotificationStatus;
   taskMeta: Record<string, TaskMeta>;
   /** Today and the next six days, computed once for Today, Tomorrow and Week. */
   days: DaySummary[];
@@ -397,4 +399,40 @@ export interface OverrunPreview {
   shifted: { taskId: string | null; title: string; from: string; to: string }[];
   dropped: { taskId: string | null; title: string }[];
   capped: boolean;
+}
+
+/** Something to remember at a time. Separate from tasks, deadlines, scheduled blocks and commitments. */
+export interface Reminder {
+  id: string;
+  title: string;
+  taskId: string | null;
+  projectId: string | null;
+  /** When it fires (UTC instant). Shown in the user's timezone. */
+  remindAt: string;
+  /** Local date and time it was set for, in the timezone it was created in. */
+  localDate: string;
+  localTime: string;
+  /** Set when the time follows a task deadline (kept in step if the deadline moves). */
+  anchor: { kind: "task_deadline" | "project_target"; id: string; offsetMinutes: number; atTime: string | null } | null;
+  /** pending: waiting. due: time has come, not yet dealt with. */
+  status: "pending" | "due" | "done" | "cancelled";
+  source: "user" | "nikki" | "demo";
+  createdAt: string;
+  firedAt: string | null;
+  doneAt: string | null;
+  /** Where it was delivered: "in-app" always once due; "push" only when a device actually received the send. */
+  channels: string[];
+}
+
+export interface NotificationStatus {
+  /** Server can send notifications to closed apps (library + keys present). */
+  pushAvailable: boolean;
+  /** Devices that turned notifications on. */
+  subscriptions: number;
+  /** This device is one of them. */
+  thisDevice: boolean;
+  /** A test was sent, and the device confirmed it received it. Only then is closed-app delivery known to work. */
+  verified: boolean;
+  lastTestAt: string | null;
+  lastAckAt: string | null;
 }

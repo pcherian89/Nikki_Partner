@@ -42,6 +42,8 @@ import {
 import { dayHistory } from "./history.js";
 import { buildFacts, computeCarryovers, computeDays, computeTaskMeta, remainingEffort, suggestNext } from "./derived.js";
 import { describeTimer, type Viewer } from "./timer.js";
+import { activeReminders, cancelForDeletedTask } from "./reminders.js";
+import { pushStatus } from "./push.js";
 import { freeSegments } from "./scheduler.js";
 import { currentBuildId } from "./build.js";
 import { getProvider } from "./provider/index.js";
@@ -129,6 +131,8 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined, 
       return { taskId: d.taskId, title: d.title, startedAt: d.startedAt, minutes: d.minutes, doubt: d.doubt };
     })(),
     checks: listUnverifiedSessions(db),
+    reminders: activeReminders(db, tz),
+    notifications: pushStatus(db, viewer.clientId),
     taskMeta,
     days: computeDays(tasks, facts),
     carryovers: computeCarryovers(db, tasks, facts),
@@ -634,6 +638,7 @@ export function reviewNewDay(db: DB, decisions: { taskId: string; action: Review
 /** Deletes a task and takes it off today's and tomorrow's plans. */
 export function deleteTaskEverywhere(db: DB, taskId: string, today: string) {
   deleteTask(db, taskId);
+  cancelForDeletedTask(db, taskId);
   removeTaskFromPlan(db, today, taskId, "Deleted.");
   removeTaskFromPlan(db, addDays(today, 1), taskId, "Deleted.");
 }

@@ -7,6 +7,7 @@ import { ProposalCard } from "./ProposalCard";
 import { ActualTime, doneTodayTasks, MorningCheckIn, WrapUpPanel } from "./DayRhythm";
 import { DayBar } from "./DayBar";
 import { EarlierToday } from "./History";
+import { ReminderSheet, ReminderStrip } from "./Reminders";
 import { AddTask, CarryLine, ContextBanner, DayTasks, FocusCard, useTimerControls } from "./TaskList";
 import { isWeekProposal, Week } from "./Week";
 import { ActionSheet, DecisionRow, MoveSheet, type MoveChoice } from "./MoveSheet";
@@ -188,6 +189,7 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
   const complete = useCompletion(state, actions);
   const plan = state.plan;
   const [dayMenu, setDayMenu] = useState(false);
+  const [addingReminder, setAddingReminder] = useState(false);
   const openReplan = () => {
     setReplanOpen(true);
     setWrapOpen(false);
@@ -207,16 +209,16 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
           <h2 className="h2">{fmtDate(state.today)}</h2>
           <div className="muted small">{fmtTime(state.now)}</div>
         </div>
-        {(plan || canWrap) && (
-          <button className="icon-btn head-more" aria-label="Day options" onClick={() => setDayMenu(true)} disabled={busy}>
-            ⋯
-          </button>
-        )}
+        <button className="icon-btn head-more" aria-label="Day options" onClick={() => setDayMenu(true)} disabled={busy}>
+          ⋯
+        </button>
+        {addingReminder && <ReminderSheet state={state} actions={actions} onClose={() => setAddingReminder(false)} />}
         {dayMenu && (
           <ActionSheet
             title="Today"
             onClose={() => setDayMenu(false)}
             items={[
+              { label: "Add a reminder…", run: () => setAddingReminder(true) },
               ...(plan ? [{ label: "Replan the rest of today", run: openReplan }] : []),
               ...(canWrap ? [{ label: state.wrapUpToday ? "Edit wrap-up" : "Wrap up the day", run: openWrap }] : []),
             ]}
@@ -244,6 +246,7 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
 
       {replanOpen && plan && <ReplanForm plan={plan} state={state} actions={actions} onClose={() => setReplanOpen(false)} busy={busy} />}
 
+      <ReminderStrip state={state} actions={actions} date={state.today} />
       <FocusCard state={state} actions={actions} timers={timers} />
       {quiet && <ContextBanner state={state} actions={actions} timers={timers} onWrap={dayOver ? openWrap : undefined} />}
 
@@ -331,6 +334,7 @@ function TomorrowBody({ state, actions, busy }: { state: AppState; actions: AppA
         </div>
       )}
       {proposal && <ProposalCard state={state} proposal={proposal} actions={actions} onShowPlan={() => window.scrollTo({ top: 0, behavior: "smooth" })} />}
+      <ReminderStrip state={state} actions={actions} date={t.date} />
       <DayTasks state={state} actions={actions} date={t.date} plan={t.plan} onToggle={complete} timers={timers} empty="Nothing assigned to tomorrow yet. Add a task below." />
       {t.plan && (
         <details className="card">

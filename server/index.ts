@@ -63,6 +63,8 @@ import {
   applyOverrun,
 } from "./planOps.js";
 import { dayHistory } from "./history.js";
+import { ackPush, deliverByPush, sendTest, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe, vapidPublicKey } from "./push.js";
+import { cancelReminder, completeReminder, createReminder, editReminder, snoozeReminder, tickReminders } from "./reminders.js";
 import { ActionRequest, runAction, setTaskFields, undoAction } from "./commands.js";
 import { addDays, isValidDate, isValidTime, isValidTimeZone, localNow } from "./time.js";
 import { validateMeeting, validatePlanDraft } from "./validate.js";
@@ -445,6 +447,72 @@ app.post(
     res.json({ state: state(req, c), preview });
   }),
 );
+
+// ---------- reminders and notifications ----------
+
+const ReminderBody = z.object({
+  title: z.string().trim().min(1).max(300),
+  taskId: z.string().nullable().optional(),
+  date: z.string().refine(isValidDate, "Use YYYY-MM-DD").optional(),
+  time: z.string().refine(isValidTime, "Use HH:MM").nullable().optional(),
+  /** Count from the linked task's deadline instead of a fixed date. */
+  fromDeadline: z.object({ offsetDays: z.number().int().min(0).max(365).optional(), offsetMinutes: z.number().int().min(0).optional(), atTime: z.string().refine(isValidTime).nullable().optional() }).optional(),
+});
+
+app.post(
+  "/api/reminders",
+  h((req, res) => {
+    const c = ctx(req);
+    const b = parse(ReminderBody, req.body);
+    let when;
+    if (b.fromDeadline) {
+      if (!b.taskId) throw new UserFacingError("Pick the task whose deadline to count from.", 400, "invalid");
+      when = { anchor: { kind: "task_deadline" as const, id: b.taskId, offsetDays: b.fromDeadline.offsetDays, offsetMinutes: b.fromDeadline.offsetMinutes, atTime: b.fromDeadline.atTime ?? null } };
+    } else {
+      if (!b.date) throw new UserFacingError("Pick a day for the reminder.", 400, "invalid");
+      when = { date: b.date, time: b.time ?? null };
+    }
+    const r = createReminder(c.db, { title: b.title, taskId: b.taskId ?? null, when, source: c.ws === "demo" ? "demo" : "user" }, c.tz);
+    res.json({ state: state(req, c), reminder: r.reminder, created: r.created });
+  }),
+);
+
+app.patch(
+  "/api/reminders/:id",
+  h((req, res) => {
+    const c = ctx(req);
+    const b = parse(z.object({ title: z.string().trim().min(1).max(300).optional(), date: z.string().refine(isValidDate).optional(), time: z.string().refine(isValidTime).nullable().optional() }), req.body);
+    const reminder = editReminder(c.db, String(req.params.id), { title: b.title, when: b.date ? { date: b.date, time: b.time ?? null } : undefined }, c.tz);
+    res.json({ state: state(req, c), reminder });
+  }),
+);
+
+app.post("/api/reminders/:id/done", h((req, res) => { const c = ctx(req); completeReminder(c.db, String(req.params.id), c.tz); res.json({ state: state(req, c) }); }));
+app.post("/api/reminders/:id/cancel", h((req, res) => { const c = ctx(req); cancelReminder(c.db, String(req.params.id), c.tz); res.json({ state: state(req, c) }); }));
+app.post(
+  "/api/reminders/:id/snooze",
+  h((req, res) => {
+    const c = ctx(req);
+    const b = parse(z.object({ minutes: z.number().int().min(5).max(7 * 1440).optional() }), req.body ?? {});
+    snoozeReminder(c.db, String(req.params.id), b.minutes ?? 60, c.tz);
+    res.json({ state: state(req, c) });
+  }),
+);
+
+app.get("/api/push/key", h((req, res) => { const c = ctx(req); res.json({ publicKey: vapidPublicKey(getDb("personal")), workspace: c.ws }); }));
+app.post(
+  "/api/push/subscribe",
+  h((req, res) => {
+    const c = ctx(req);
+    const b = parse(z.object({ endpoint: z.string().max(2000), keys: z.object({ p256dh: z.string().max(300), auth: z.string().max(100) }) }), req.body);
+    // Notifications are for the real workspace only; demo data never pushes.
+    pushSubscribe(getDb("personal"), b, c.viewer.clientId);
+    res.json({ state: state(req, c) });
+  }),
+);
+app.post("/api/push/unsubscribe", h((req, res) => { const c = ctx(req); const b = parse(z.object({ endpoint: z.string() }), req.body); pushUnsubscribe(getDb("personal"), b.endpoint); res.json({ state: state(req, c) }); }));
+app.post("/api/push/test", h(async (req, res) => { const c = ctx(req); const n = await sendTest(getDb("personal")); res.json({ state: state(req, c), sent: n }); }));
+app.post("/api/push/ack", h((req, res) => { ackPush(getDb("personal")); res.json({ ok: true }); }));
 
 /** Undo from a receipt (toast or chat). */
 app.post(
@@ -882,6 +950,19 @@ if (isMain) {
       syncStale(db, resolveTimezone(getProfile(db), getSetting(db, "last_timezone") ?? undefined));
     }
   }, 15 * 60 * 1000).unref();
+  // Fire reminders when their time comes, whether or not the app is open. Delivery to closed apps is by push (opt-in).
+  const fireReminders = async () => {
+    for (const ws of ["personal", "demo"] as const) {
+      const db = getDb(ws);
+      try {
+        await tickReminders(db, resolveTimezone(getProfile(db), getSetting(db, "last_timezone") ?? undefined), ws === "personal" ? deliverByPush(db) : undefined);
+      } catch (e) {
+        console.warn(`[reminders] ${(e as Error).message}`);
+      }
+    }
+  };
+  setInterval(fireReminders, 20_000).unref();
+  void fireReminders();
   app.listen(config.port, () => {
     console.log(`Nikki is running on http://localhost:${config.port}`);
     console.log(`  Personal data: ${dbPath("personal")}`);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AppState, Meeting, Task } from "../../shared/types";
 import type { AppActions } from "../App";
-import { fmtDate, fmtDuration, fmtRange } from "../util";
+import { fmtDate, fmtDuration, fmtRange, fmtTime } from "../util";
 import { ProposalCard } from "./ProposalCard";
 import { useCompletion, useMoveTask } from "./Today";
 import { MoveSheet } from "./MoveSheet";
@@ -81,10 +81,11 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
           const meetings = meetingsOn(d);
           const planned = plannedOn(d);
           const due = [...dueOn(d), ...(i === 0 ? overdueDeadlines : [])];
+          const rems = state.reminders.filter((r) => r.localDate === d || (i === 0 && r.status === "due" && r.localDate < d));
           const dayPlan = d === state.today ? state.plan : d === state.tomorrow.date ? state.tomorrow.plan : null;
           const label = i === 0 ? "Today" : i === 1 ? "Tomorrow" : weekdayShort(d);
           const sum = state.days.find((x) => x.date === d);
-          const empty = !meetings.length && !planned.length && !due.length && !dayPlan;
+          const empty = !meetings.length && !planned.length && !due.length && !dayPlan && !rems.length;
           return (
             <section key={d} className={`week-day ${i === 0 ? "is-today" : ""}`}>
               <div className="week-date">
@@ -117,6 +118,16 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
                         ×
                       </button>
                     )}
+                  </div>
+                ))}
+                {rems.map((r) => (
+                  <div key={`rem-${r.id}`} className="week-item reminder">
+                    <span aria-hidden>🔔</span>
+                    <span>
+                      <span className="muted small">{fmtTime(r.localTime)} · </span>
+                      {r.title}
+                      {r.status === "due" && <span className="tag warn">Due</span>}
+                    </span>
                   </div>
                 ))}
                 {due.map((t) => (

@@ -2895,3 +2895,50 @@ details summary {
     margin-left: 34px;
   }
 }
+
+/* ---------- Stage D: reminders ---------- */
+.reminder-strip {
+  margin-bottom: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 4px 12px;
+}
+.reminder-strip.due {
+  border-color: rgba(242, 198, 109, 0.45);
+  background: linear-gradient(180deg, rgba(242, 198, 109, 0.07), transparent 80%), var(--surface);
+}
+.reminder-line {
+  background: none;
+  border: 0;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 0;
+  cursor: pointer;
+  text-align: left;
+}
+.reminder-strip.due .reminder-line {
+  color: var(--warn);
+}
+.reminder-list {
+  margin: 0 0 6px;
+}
+.reminder-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+.reminder-text {
+  min-width: 0;
+  flex: 1 1 160px;
+}
+.week-item.reminder {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
