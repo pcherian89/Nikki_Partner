@@ -14,6 +14,7 @@ import {
   currentPlan,
   DB,
   dbPath,
+  closeAll,
   deleteMeeting,
   deleteTask,
   finishRequest,
@@ -705,7 +706,7 @@ if (isMain) {
       syncStale(db, resolveTimezone(getProfile(db), getSetting(db, "last_timezone") ?? undefined));
     }
   }, 15 * 60 * 1000).unref();
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     console.log(`Nikki is running on http://localhost:${config.port}`);
     console.log(`  Personal data: ${dbPath("personal")}`);
     if (config.movedIntoVolume) console.log(`  (DATABASE_PATH ${config.movedIntoVolume} is outside the volume, so the volume path is used instead.)`);
@@ -717,5 +718,27 @@ if (isMain) {
         : "  Live AI: OFF (no ANTHROPIC_API_KEY) — Demo mode works; personal workspace can store data but can't call Claude.",
     );
     if (config.appPassword) console.log("  Password protection: ON");
+  });
+  // Railway stops the old copy with SIGTERM when it deploys an update. Finish open requests, close the
+  // databases and exit normally, so an update isn't reported as a crash.
+  const shutdown = (signal: string) => {
+    console.log(`Received ${signal}: shutting down cleanly for an update or restart.`);
+    server.close(() => {
+      closeAll();
+      process.exit(0);
+    });
+    setTimeout(() => {
+      closeAll();
+      process.exit(0);
+    }, 8000).unref();
+  };
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  // Log anything unexpected with its cause, so a real crash can be diagnosed from the deploy logs.
+  process.on("unhandledRejection", (reason) => console.error("Unhandled error (kept running):", reason));
+  process.on("uncaughtException", (err) => {
+    console.error("Fatal error:", err);
+    closeAll();
+    process.exit(1);
   });
 }
