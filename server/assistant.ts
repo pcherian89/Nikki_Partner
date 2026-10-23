@@ -81,6 +81,12 @@ interface Resolved {
 
 const MAX_CAPTURES = 25;
 
+/** Planning is something the user asks for. Capturing tasks must never come back with times attached. */
+const PLAN_WORDS = /\b(plan|planning|schedule|scheduling|timetable|organi[sz]e|arrange|lay out|block out|time[- ]?block|agenda|replan|re-plan)\b|what should i do (first|next)|fit (it|them|these) in/i;
+export function wantsPlan(text: string, recentUserTexts: string[], hasPendingPlan: boolean): boolean {
+  return hasPendingPlan || PLAN_WORDS.test(text) || recentUserTexts.slice(-2).some((t) => PLAN_WORDS.test(t));
+}
+
 const emptyResponse = (): ModelResponse => ModelResponse.parse({ message: "", questions: [], captured_items: [], task_updates: [], meetings: [], context_updates: [], plan: null });
 
 /** An estimate is only accepted if the user's own message gave a duration. */
@@ -155,6 +161,9 @@ export function resolveResponse(
     planOn?: (date: string) => Plan | null;
     /** What the user typed, to check that an estimate was really stated by them. */
     userText?: string;
+    /** False when the user didn't ask for a plan: any plan the model returns is dropped. */
+    allowPlan?: boolean;
+    demo?: boolean;
     memoryDb?: DB;
     projectOn?: (id: string) => Project | null;
     projectTitles?: string[];
@@ -253,7 +262,9 @@ export function resolveResponse(
     .map((c) => ({ id: newId("cs"), field: c.field, action: c.action, value: c.value.trim(), reason: c.reason, status: "pending" }));
 
   let draft: PlanDraft | null = null;
-  if (resp.plan && ctx.kind !== "wrapup") {
+  if (resp.plan && ctx.allowPlan === false && ctx.kind === "chat" && resp.captured_items.length > 0 && !ctx.demo) {
+    notes.push("You added tasks without asking for a schedule, so Nikki's suggested times were not used. Ask her to plan your day when you want one.");
+  } else if (resp.plan && ctx.kind !== "wrapup") {
     const p = resp.plan;
     const resolve = (ref: string | null) => (ref ? (refMap.get(ref) ?? ref) : null);
     // Plans can be for today or tomorrow; replans are always for today.
@@ -415,6 +426,12 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
       hasPlanToday: !!plan,
       planOn: (date: string) => currentPlan(db, date),
       userText: input.text,
+      demo: ws === "demo",
+      allowPlan: wantsPlan(
+        input.text,
+        history.filter((m) => m.role === "user").slice(-3, -1).map((m) => m.text),
+        !!pending?.plan,
+      ),
       memoryDb: db,
       projectOn: (id: string) => getProject(db, id),
       projectTitles: listProjects(db).map((p) => p.title),

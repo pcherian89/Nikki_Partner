@@ -8,6 +8,7 @@ import { ActualTime, doneTodayTasks, MorningCheckIn, WrapUpPanel } from "./DayRh
 import { DayBar } from "./DayBar";
 import { EarlierToday } from "./History";
 import { ReminderSheet, ReminderStrip } from "./Reminders";
+import { TodayHero } from "./Hero";
 import { AddTask, CarryLine, ContextBanner, DayTasks, FocusCard, useTimerControls } from "./TaskList";
 import { isWeekProposal, Week } from "./Week";
 import { ActionSheet, DecisionRow, MoveSheet, type MoveChoice } from "./MoveSheet";
@@ -114,7 +115,9 @@ export function Today({ state, actions, busy }: { state: AppState; actions: AppA
   useEffect(() => {
     if (state.proposal?.status === "pending") setDay(proposalDay);
   }, [state.proposal?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const doneCount = state.plan ? planProgress(state.plan, state.tasks) : null;
+  // Progress is the whole day's list (assigned and scheduled tasks), not only the scheduled ones.
+  const d0 = state.days[0];
+  const doneCount = d0 ? { done: d0.doneCount, total: d0.doneCount + d0.openIds.length } : null;
   return (
     <div className="today">
       <div className="day-switch-row">
@@ -132,7 +135,6 @@ export function Today({ state, actions, busy }: { state: AppState; actions: AppA
             {proposalDay === "week" && <span className="dot" aria-label="proposal waiting" />}
           </button>
         </div>
-        {day === "today" && doneCount && doneCount.total > 0 && <ProgressRing done={doneCount.done} total={doneCount.total} />}
       </div>
       {day === "today" ? (
         <TodayBody state={state} actions={actions} busy={busy} />
@@ -204,34 +206,37 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
 
   return (
     <>
-      <div className="today-head">
-        <div>
-          <h2 className="h2">{fmtDate(state.today)}</h2>
-          <div className="muted small">{fmtTime(state.now)}</div>
-        </div>
-        <button className="icon-btn head-more" aria-label="Day options" onClick={() => setDayMenu(true)} disabled={busy}>
-          ⋯
-        </button>
-        {addingReminder && <ReminderSheet state={state} actions={actions} onClose={() => setAddingReminder(false)} />}
-        {dayMenu && (
-          <ActionSheet
-            title="Today"
-            onClose={() => setDayMenu(false)}
-            items={[
-              { label: "Add a reminder…", run: () => setAddingReminder(true) },
-              {
-                label: "Weekly review",
-                run: () => {
-                  actions.focusComposer();
-                  void actions.send("Weekly review.", "weekly_review");
-                },
-              },
-              ...(plan ? [{ label: "Replan the rest of today", run: openReplan }] : []),
-              ...(canWrap ? [{ label: state.wrapUpToday ? "Edit wrap-up" : "Wrap up the day", run: openWrap }] : []),
-            ]}
-          />
-        )}
-      </div>
+      <TodayHero
+        state={state}
+        actions={actions}
+        timers={timers}
+        menu={
+          <>
+            <button className="icon-btn head-more" aria-label="Day options" onClick={() => setDayMenu(true)} disabled={busy}>
+              ⋯
+            </button>
+            {addingReminder && <ReminderSheet state={state} actions={actions} onClose={() => setAddingReminder(false)} />}
+            {dayMenu && (
+              <ActionSheet
+                title="Today"
+                onClose={() => setDayMenu(false)}
+                items={[
+                  { label: "Add a reminder…", run: () => setAddingReminder(true) },
+                  {
+                    label: "Weekly review",
+                    run: () => {
+                      actions.focusComposer();
+                      void actions.send("Weekly review.", "weekly_review");
+                    },
+                  },
+                  ...(plan ? [{ label: "Replan the rest of today", run: openReplan }] : []),
+                  ...(canWrap ? [{ label: state.wrapUpToday ? "Edit wrap-up" : "Wrap up the day", run: openWrap }] : []),
+                ]}
+              />
+            )}
+          </>
+        }
+      />
 
       {showCheckIn && <MorningCheckIn state={state} actions={actions} />}
       {wrapOpen && <WrapUpPanel state={state} actions={actions} onClose={() => setWrapOpen(false)} busy={busy} />}

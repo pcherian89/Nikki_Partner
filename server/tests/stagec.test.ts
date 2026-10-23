@@ -418,3 +418,44 @@ test("parity: a button and chat refuse the same things for the same reason", asy
   const ui2 = await api("PATCH", `/api/tasks/${t.id}`, { plannedDate: "2020-01-01" });
   assert.equal(ui2.status, 400);
 });
+
+test("adding tasks in chat never schedules them: a plan the user didn't ask for is dropped, with no times or estimates", async () => {
+  fakeReply({
+    message: "Added.",
+    captured_items: [item("Medical conference final report"), item("Financial proposal")],
+    plan: planReply([blk("10:00", "11:30", "n1"), blk("11:45", "13:15", "n2")]),
+  });
+  const r = await chat("Add: medical conference final report, financial proposal");
+  const s = r.json.state;
+  assert.equal(s.tasks.length, 2);
+  assert.equal(s.proposal, null, "no plan proposed");
+  assert.ok(s.tasks.every((t: any) => t.estimateMinutes === null));
+  assert.equal(s.plan, null);
+  // but when asked, a plan is proposed as before
+  fakeReply({ captured_items: [item("Third thing")], plan: planReply([blk("10:00", "11:00", s.tasks[0].id)]) });
+  assert.ok((await chat("Plan my day please, and add: third thing")).json.state.proposal?.plan);
+});
+
+test("Add time: a task has no time until the user gives it one; the block is pinned, clashes are refused, nothing else changes", async () => {
+  const a = await mk({ title: "Report", plannedDate: DAY });
+  const b = await mk({ title: "Review", plannedDate: DAY });
+  assert.equal((await state()).plan, null, "no time by default");
+  assert.equal((await state()).tasks.find((t: any) => t.id === a.id).estimateMinutes, null);
+  const ok = await api("POST", `/api/tasks/${a.id}/schedule`, { date: DAY, start: "14:00", minutes: 60 });
+  assert.equal(ok.status, 200);
+  const plan = ok.json.state.plan;
+  const blk = plan.blocks.find((x: any) => x.taskId === a.id);
+  assert.deepEqual([blk.start, blk.end, blk.pinned], ["14:00", "15:00", true]);
+  assert.equal(ok.json.state.tasks.find((t: any) => t.id === a.id).estimateMinutes, null, "no estimate was written");
+  assert.ok(!blk.provisional, "a length the user chose is not a guess");
+  assert.equal(ok.json.state.tasks.find((t: any) => t.id === b.id).plannedDate, DAY, "other tasks untouched");
+  const clash = await api("POST", `/api/tasks/${b.id}/schedule`, { date: DAY, start: "14:30", minutes: 30 });
+  assert.equal(clash.status, 409);
+  assert.match(clash.json.error, /clashes/);
+  assert.equal((await api("POST", `/api/tasks/${b.id}/schedule`, { date: DAY, start: "08:00", minutes: 30 })).status, 400, "already passed");
+  assert.equal((await api("POST", `/api/tasks/${b.id}/schedule`, { date: "2026-10-30", start: "11:00", minutes: 30 })).status, 400, "today or tomorrow only");
+  const second = await api("POST", `/api/tasks/${b.id}/schedule`, { date: DAY, start: "15:00", minutes: 45 });
+  assert.equal(second.status, 200);
+  assert.equal(second.json.state.plan.blocks.filter((x: any) => x.pinned).length, 2);
+  assert.equal(second.json.state.plan.version, 2);
+});

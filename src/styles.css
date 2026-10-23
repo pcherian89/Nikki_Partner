@@ -3038,3 +3038,321 @@ details summary {
   margin: 4px 0 0;
   padding-left: 18px;
 }
+
+/* =====================================================================
+   Vibrant layer: same identity (deep green-black, lime), more life.
+   Teal and violet are small supporting accents; lime stays the hero colour.
+   ===================================================================== */
+:root {
+  --teal: #2dd4bf;
+  --teal-soft: rgba(45, 212, 191, 0.14);
+  --violet: #b9a2ff;
+  --violet-soft: rgba(185, 162, 255, 0.15);
+  --lime-glow: rgba(163, 230, 53, 0.35);
+}
+body {
+  background-image: radial-gradient(900px 520px at 90% -8%, rgba(163, 230, 53, 0.13), transparent 62%), radial-gradient(700px 480px at -10% 30%, rgba(45, 212, 191, 0.07), transparent 60%),
+    radial-gradient(800px 500px at 50% 115%, rgba(163, 230, 53, 0.05), transparent 60%);
+  background-attachment: fixed;
+}
+.card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 38%), var(--surface);
+  border-color: rgba(163, 230, 53, 0.1);
+}
+.tab.active,
+.segmented button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+.topbar {
+  border-bottom-color: rgba(163, 230, 53, 0.14);
+}
+.brand img,
+.brand .avatar {
+  box-shadow: 0 0 0 2px var(--accent-line), 0 0 16px var(--lime-glow);
+}
+
+/* Today hero: Nikki says hello */
+.hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
+  padding: 18px;
+  margin-bottom: 14px;
+  border: 1px solid var(--accent-line);
+  background: radial-gradient(420px 180px at 100% 0%, rgba(163, 230, 53, 0.22), transparent 70%), radial-gradient(360px 200px at 0% 100%, rgba(45, 212, 191, 0.14), transparent 70%),
+    linear-gradient(160deg, #18241a, #101810);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.hero-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.hero-text {
+  flex: 1;
+  min-width: 0;
+}
+.hero-eyebrow {
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.hero-title {
+  margin: 2px 0 2px;
+  font-size: 24px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  text-transform: none;
+}
+.hero-line {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 14px;
+}
+.hero-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.hero .head-more {
+  align-self: flex-end;
+}
+.hero-next {
+  display: flex;
+  align-items: center;
+  gap: 4px 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(163, 230, 53, 0.1);
+  border: 1px solid var(--accent-line);
+}
+.hero-next-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.hero-next-title {
+  font-weight: 650;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.hero-next-why {
+  color: var(--text-2);
+  font-size: 12.5px;
+  flex-basis: 100%;
+  order: 3;
+}
+.hero .avatar {
+  box-shadow: 0 0 0 2px var(--accent), 0 0 22px var(--lime-glow);
+}
+.progress-ring .ring-fg {
+  stroke: var(--accent);
+  filter: drop-shadow(0 0 4px var(--lime-glow));
+}
+.progress-ring .ring-label {
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* Task cards */
+.day-tasks > .row h3::before,
+.strategy-card h2::before,
+.projects-card h2::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--lime-glow);
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.day-tasks .task-list {
+  gap: 8px;
+}
+.day-task {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)), var(--surface-2);
+  padding: 12px 12px;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.day-task:hover {
+  border-color: var(--accent-line);
+}
+.day-task[data-priority="high"] {
+  border-left-color: var(--accent);
+  background: linear-gradient(90deg, rgba(163, 230, 53, 0.1), rgba(163, 230, 53, 0) 55%), var(--surface-2);
+}
+.day-task[data-risk="yes"] {
+  border-left-color: var(--warn);
+  background: linear-gradient(90deg, rgba(242, 198, 109, 0.12), rgba(242, 198, 109, 0) 55%), var(--surface-2);
+}
+.day-task.is-running {
+  border-left-color: var(--accent);
+  background: linear-gradient(90deg, rgba(163, 230, 53, 0.2), rgba(163, 230, 53, 0.04)), var(--surface-2);
+  box-shadow: 0 0 0 1px var(--accent-line), 0 6px 22px rgba(163, 230, 53, 0.12);
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.day-task .slot-title {
+  font-weight: 600;
+  font-size: 15.5px;
+}
+.day-task .btn.primary-soft {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0d1408;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(163, 230, 53, 0.25);
+}
+.day-task .btn.primary-soft:hover {
+  background: #b5ef55;
+}
+.day-task .btn.timer-on {
+  background: rgba(163, 230, 53, 0.16);
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+.add-time-link {
+  align-self: flex-start;
+  color: var(--teal);
+  font-weight: 600;
+  margin-top: 2px;
+}
+.add-time-link:hover {
+  text-decoration: underline;
+}
+.tag.high {
+  background: var(--accent);
+  color: #0d1408;
+  font-weight: 700;
+}
+.tag.optional {
+  background: var(--violet-soft);
+  color: var(--violet);
+}
+.project-chip {
+  background: var(--teal-soft) !important;
+  color: var(--teal) !important;
+}
+.chip.selected,
+.chip[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0d1408;
+  font-weight: 650;
+}
+.add-task input {
+  border-color: var(--accent-line);
+  background: rgba(163, 230, 53, 0.04);
+}
+.add-task input::placeholder {
+  color: var(--accent);
+  opacity: 0.75;
+}
+
+/* Reminders and banners get their own colour so they read at a glance */
+.reminder-strip {
+  border-left: 3px solid var(--violet);
+}
+.reminder-strip.due {
+  border-left-color: var(--warn);
+}
+.banner {
+  border-left: 3px solid var(--teal);
+  background: linear-gradient(90deg, rgba(45, 212, 191, 0.09), transparent 60%), var(--surface);
+}
+.focus-card {
+  box-shadow: 0 0 0 1px var(--accent-line), 0 10px 34px rgba(163, 230, 53, 0.16);
+}
+.focus-card .eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 7px;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+
+/* Chat: Nikki's words feel like hers */
+.msg.assistant .bubble {
+  background: linear-gradient(160deg, rgba(163, 230, 53, 0.1), rgba(163, 230, 53, 0.02) 60%), var(--surface-2);
+  border-color: var(--accent-line);
+}
+.msg.user .bubble {
+  background: linear-gradient(135deg, #a3e635, #84cc16);
+  color: #0d1408;
+  font-weight: 550;
+}
+.chat-head {
+  background: linear-gradient(90deg, rgba(163, 230, 53, 0.09), transparent 70%);
+}
+.chat-head .avatar {
+  box-shadow: 0 0 0 2px var(--accent), 0 0 14px var(--lime-glow);
+}
+
+/* Section heads and small headings */
+.section-summary,
+.eyebrow {
+  color: var(--accent);
+}
+.completed .struck,
+.struck {
+  text-decoration-color: var(--accent-line);
+}
+.history-card .section-summary {
+  color: var(--text-2);
+}
+
+@media (max-width: 520px) {
+  .hero {
+    padding: 16px 14px;
+  }
+  .hero-title {
+    font-size: 21px;
+  }
+  .hero-top {
+    align-items: flex-start;
+  }
+}
+.add-time-link {
+  font-size: 12.5px;
+  text-decoration: none;
+  opacity: 0.9;
+}
+.day-tasks .workload {
+  margin-bottom: 10px;
+}
+@media (max-width: 520px) {
+  .hero-title {
+    font-size: 19px;
+  }
+  .hero-top .avatar {
+    width: 48px !important;
+    height: 48px !important;
+  }
+  .hero-top .avatar img {
+    width: 48px;
+    height: 48px;
+  }
+}

@@ -370,7 +370,7 @@ test("live: 'take X off today' is a confirmable change that really removes it on
       };
     },
   });
-  const r1 = await send("Report and tenders today", "personal");
+  const r1 = await send("Plan my day: report and tenders today", "personal");
   assert.equal(r1.status, 200, JSON.stringify(r1.json));
   await api("POST", `/api/proposals/${r1.json.state.proposal.id}/confirm`, {}, "personal");
   ids = r1.json.state.proposal.plan.blocks.filter((b: any) => b.taskId).map((b: any) => b.taskId);
@@ -430,7 +430,7 @@ test("live: API failures surface as errors (no silent demo fallback) and the mes
 test("live: invalid JSON twice -> error; bad plan gets one repair attempt", async () => {
   let calls = 0;
   setProvider({ name: "fake", model: "fake", generate: async () => ({ text: (calls++, "not json"), model: "fake" }) });
-  const r = await send("hello", "personal");
+  const r = await send("plan my day", "personal");
   assert.equal(r.status, 502);
   assert.equal(r.json.code, "invalid_output");
   assert.equal(calls, 2, "bounded retries");
@@ -474,7 +474,7 @@ test("live: invalid JSON twice -> error; bad plan gets one repair attempt", asyn
       return { text: JSON.stringify({ ...base, plan: calls++ === 0 ? bad : good }), model: "fake" };
     },
   });
-  const r2 = await send("I need to write the report. Standup 11-11:30.", "personal");
+  const r2 = await send("Plan my day: I need to write the report. Standup 11-11:30.", "personal");
   assert.equal(r2.status, 200);
   assert.equal(calls, 2);
   assert.match(seen[0], /<app_state>/);

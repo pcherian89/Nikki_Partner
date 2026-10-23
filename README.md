@@ -254,6 +254,7 @@ The workspace is chosen with the `X-Workspace: personal|demo` header. The browse
 ## Using Nikki day to day
 
 - **Capture anything** in the box on Today ("+ Add task") or in chat: "Add five tasks for tomorrow", "The report is due Friday at 4 PM, high priority". A task needs only a title. A day, priority and deadline are separate and optional; nothing is scheduled until you ask.
+- **Tasks have no time by default**, whether added by hand or in chat. Give one a time with **+ Add time** (or ⋯ → Add time…); Nikki only proposes a schedule when you ask her to plan.
 - **Start any task** with its Start button. Pause, resume or finish whenever. Forgot the timer? ⋯ → **Add time worked**. A timer that ran for hours is shown as "needs a check" and isn't counted until you confirm or correct it.
 - **Plan the day only if you want to**: tell Nikki "Plan my day". Times you name ("call the bank at 3") are pinned and kept when she replans. A plan shows what's **not scheduled** and what's **at risk**.
 - **Reminders**: "Remind me tomorrow morning to follow up on the proposal", or Today ⋯ → Add a reminder. Due reminders appear at the top of Today. For notifications while Nikki is closed: Context → *Reminders & notifications* → Turn on, then **Send a test**. It says "Verified" only after the test actually arrives on your device (on iPhone, add Nikki to your Home Screen first).

@@ -194,10 +194,10 @@ export function TaskMetaChips({ task, state, plan }: { task: Task; state: AppSta
   const checks = state.checks.filter((s) => s.taskId === task.id);
   return (
     <span className="task-meta">
-      {task.priority === "high" && <span className="tag">High</span>}
+      {task.priority === "high" && <span className="tag high">High</span>}
       {task.priority === "low" && <span className="muted small">Low priority</span>}
       {task.projectId && state.projects.find((p) => p.id === task.projectId) && <span className="tag subtle project-chip">{state.projects.find((p) => p.id === task.projectId)!.title}</span>}
-      {task.optional && <span className="tag subtle">If time allows</span>}
+      {task.optional && <span className="tag optional">If time allows</span>}
       {blocks[0] && (
         <span className="muted small">
           {fmtRange(blocks[0].start, blocks[0].end)}
@@ -243,7 +243,7 @@ export function TaskRow({
   isToday: boolean;
 }) {
   const [menu, setMenu] = useState(false);
-  const [sheet, setSheet] = useState<null | "priority" | "deadline" | "time" | "move" | "remind">(null);
+  const [sheet, setSheet] = useState<null | "priority" | "deadline" | "time" | "move" | "remind" | "schedule">(null);
   const minutes = useTimerMinutes(task);
   const running = !!task.timerStartedAt;
   const move = useMoveTask(state, actions, onToggle);
@@ -262,7 +262,8 @@ export function TaskRow({
   );
 
   const items: SheetAction[] = [
-    { label: "Add time worked…", run: () => setSheet("time") },
+    { label: "Add time…", run: () => setSheet("schedule") },
+    { label: "Log time worked…", run: () => setSheet("time") },
     { label: "Priority…", run: () => setSheet("priority") },
     { label: task.optional ? "Not “if time allows”" : "Mark “if time allows”", run: () => actions.mutate("PATCH", `/api/tasks/${task.id}`, { optional: !task.optional }) },
     { label: task.deadline ? "Change deadline…" : "Set a deadline…", run: () => setSheet("deadline") },
@@ -281,12 +282,17 @@ export function TaskRow({
   ];
 
   return (
-    <li className={`task-row day-task ${running ? "is-running" : ""}`}>
+    <li className={`task-row day-task ${running ? "is-running" : ""}`} data-priority={task.priority} data-risk={["overdue", "at_risk"].includes(state.taskMeta[task.id]?.deadlineStatus ?? "") ? "yes" : "no"}>
       <div className="task-main">
         <input type="checkbox" className="check" checked={task.status === "done"} onChange={(e) => onToggle(task, e.target.checked)} aria-label={`Mark ${task.title} done`} />
         <div className="task-text">
           <span className="slot-title">{task.title}</span>
           <TaskMetaChips task={task} state={state} plan={plan} />
+          {task.status === "open" && !blocksOf(plan, task.id).length && (
+            <button className="link small add-time-link" onClick={() => setSheet("schedule")}>
+              + Add time
+            </button>
+          )}
           <StepList task={task} actions={actions} compact />
         </div>
         <div className="task-actions row gap center-y">
@@ -308,6 +314,7 @@ export function TaskRow({
         />
       )}
       {sheet === "deadline" && <DeadlineSheet task={task} state={state} actions={actions} onClose={() => setSheet(null)} />}
+      {sheet === "schedule" && <ScheduleSheet task={task} state={state} actions={actions} date={isToday ? state.today : state.tomorrow.date} onClose={() => setSheet(null)} />}
       {sheet === "remind" && <ReminderSheet state={state} actions={actions} task={task} onClose={() => setSheet(null)} />}
       {sheet === "time" && <AddTimeSheet task={task} state={state} actions={actions} onClose={() => setSheet(null)} />}
       {sheet === "move" && (
@@ -323,6 +330,59 @@ export function TaskRow({
         />
       )}
     </li>
+  );
+}
+
+/** "Add time": give a task a time on this day. Optional; tasks have no time until you do. */
+export function ScheduleSheet({ task, state, actions, date, onClose }: { task: Task; state: AppState; actions: AppActions; date: string; onClose: () => void }) {
+  const nowM = toMin(state.now);
+  const first = date === state.today ? Math.min(23 * 60, Math.ceil((nowM + 5) / 15) * 15) : 9 * 60;
+  const [start, setStart] = useState(`${String(Math.floor(first / 60)).padStart(2, "0")}:${String(first % 60).padStart(2, "0")}`);
+  const [minutes, setMinutes] = useState(task.estimateMinutes ?? 60);
+  const [error, setError] = useState<string | null>(null);
+  const save = async () => {
+    setError(null);
+    const r = await call(actions, "POST", `/api/tasks/${task.id}/schedule`, { date, start, minutes });
+    if (r.ok) {
+      actions.toast({ text: `“${task.title}” scheduled.` });
+      onClose();
+    } else setError(r.err.message);
+  };
+  return (
+    <FormSheet title={`Add time · ${task.title}`} onClose={onClose}>
+      <div className="sheet-form">
+        <p className="muted small sheet-note">
+          {date === state.today ? "Today" : "Tomorrow"}. This only sets when you plan to work on it; you can still start it any time.
+        </p>
+        <label className="field">
+          <span>Start</span>
+          <input type="time" value={start} onChange={(e) => setStart(e.target.value)} />
+        </label>
+        <div className="field">
+          <span>How long</span>
+          <div className="chips" role="group" aria-label="How long">
+            {[15, 30, 45, 60, 90, 120].map((m) => (
+              <button key={m} type="button" className={`chip small-chip ${minutes === m ? "selected" : ""}`} aria-pressed={minutes === m} onClick={() => setMinutes(m)}>
+                {fmtDuration(m)}
+              </button>
+            ))}
+          </div>
+        </div>
+        {error && (
+          <div className="error-box" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="row gap wrap">
+          <button className="btn primary" disabled={!start} onClick={save}>
+            Add to {date === state.today ? "today" : "tomorrow"}
+          </button>
+          <button className="btn ghost" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </FormSheet>
   );
 }
 

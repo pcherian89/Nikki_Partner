@@ -195,7 +195,8 @@ export function markProvisional(blocks: PlanBlock[], tasks: Map<string, Task>): 
   return blocks.map((b) => {
     if (!WORK_KINDS.has(b.kind) || !b.taskId) return b;
     const t = tasks.get(b.taskId);
-    const guess = !!t && t.estimateMinutes == null && t.spentMinutes === 0;
+    // A length the user chose (pinned) is a decision, not a guess.
+    const guess = !b.pinned && !!t && t.estimateMinutes == null && t.spentMinutes === 0;
     const { provisional: _p, ...rest } = b;
     return guess ? { ...rest, provisional: true } : rest;
   });
@@ -881,4 +882,60 @@ export function applyOverrun(db: DB, taskId: string, timezone: string, minutes =
     throw e;
   }
   return preview;
+}
+
+// ---------- giving a task a time, by hand ----------
+
+/**
+ * "Add time" on a task: the user picks a day, a start and a length. It becomes a pinned block in that day's plan
+ * (the plan is created if there isn't one). Overlaps with meetings or other blocks are refused with the reason.
+ * The task keeps its own settings; no estimate is written.
+ */
+export function scheduleTaskTime(db: DB, taskId: string, input: { date: string; start: string; minutes: number }, timezone: string) {
+  const now = localNow(timezone);
+  if (input.date !== now.date && input.date !== addDays(now.date, 1)) throw new UserFacingError("Time can be added for today or tomorrow.", 400, "invalid");
+  if (!isValidTime(input.start)) throw new UserFacingError("I didn't understand that start time.", 400, "invalid");
+  if (!Number.isInteger(input.minutes) || input.minutes < 5 || input.minutes > 480) throw new UserFacingError("Choose a length between 5 minutes and 8 hours.", 400, "invalid");
+  const task = getTask(db, taskId);
+  if (!task || task.type !== "action") throw new UserFacingError("Task not found.", 404, "not_found");
+  if (task.status === "done") throw new UserFacingError("That task is already done.", 409, "task_done");
+  const startMin = toMinutes(input.start);
+  const endMin = startMin + input.minutes;
+  if (endMin > 23 * 60 + 59) throw new UserFacingError("That would run past midnight.", 400, "invalid");
+  if (input.date === now.date && startMin < toMinutes(now.time) - 5) throw new UserFacingError("That start time has already passed.", 400, "invalid");
+
+  const cur = currentPlan(db, input.date);
+  const profile = getProfile(db);
+  const usual = isValidTime(profile.workStart) && isValidTime(profile.workEnd) && toMinutes(profile.workEnd) > toMinutes(profile.workStart) ? { start: profile.workStart, end: profile.workEnd } : { start: "09:00", end: "17:00" };
+  const base = cur ?? null;
+  const windowStart = fromMinutes(Math.min(toMinutes((base?.window ?? usual).start), startMin));
+  const windowEnd = fromMinutes(Math.max(toMinutes((base?.window ?? usual).end), endMin));
+  const block: PlanBlock = { id: newId("b"), start: input.start, end: fromMinutes(endMin), kind: "task", taskId, meetingId: null, title: task.title, pinned: true };
+  const { meetings, blocks } = withMeetingBlocks(db, input.date, [...(base?.blocks ?? []), block]);
+  const draft: PlanDraft = {
+    date: input.date,
+    mainOutcome: base?.mainOutcome ?? "",
+    focusTaskId: base?.focusTaskId ?? null,
+    focusWhy: base?.focusWhy ?? "",
+    supporting: base?.supporting ?? [],
+    deferred: (base?.deferred ?? []).filter((d) => d.taskId !== taskId),
+    reasons: base?.reasons ?? [],
+    assumptions: base?.assumptions ?? [],
+    window: { start: windowStart, end: windowEnd },
+    workBudgetMinutes: 0,
+    blocks: markProvisional(blocks, taskMap(db)),
+  };
+  draft.workBudgetMinutes = Math.min(freeMinutes(draft.window, meetings), Math.max(base?.workBudgetMinutes ?? 0, workMinutes(draft)));
+  const errors = validatePlanDraft(draft, { meetings, tasks: taskMap(db) });
+  if (errors.length) {
+    const clash = errors.find((e) => /overlap/i.test(e));
+    throw new UserFacingError(clash ? `That time clashes with something already there. ${clash}` : "That time doesn't fit the day.", 409, "invalid_plan", errors);
+  }
+  try {
+    savePlanVersion(db, draft, { expectedVersion: currentPlanVersion(db, input.date), proposalId: null, source: "user-edit" });
+  } catch (e) {
+    if (e instanceof StalePlanError) throw new UserFacingError("The plan changed meanwhile. Try again.", 409, "stale");
+    throw e;
+  }
+  return block;
 }

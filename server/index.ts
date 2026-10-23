@@ -61,6 +61,7 @@ import {
   recordOutcomes,
   previewOverrun,
   applyOverrun,
+  scheduleTaskTime,
 } from "./planOps.js";
 import { dayHistory } from "./history.js";
 import { ackPush, deliverByPush, sendTest, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe, vapidPublicKey } from "./push.js";
@@ -579,6 +580,17 @@ app.delete(
   h((req, res) => {
     const c = ctx(req);
     removeMemory(c.db, String(req.params.id));
+    res.json({ state: state(req, c) });
+  }),
+);
+
+/** "Add time" on a task: a pinned block the user chose. */
+app.post(
+  "/api/tasks/:id/schedule",
+  h((req, res) => {
+    const c = ctx(req);
+    const b = parse(z.object({ date: z.string().refine(isValidDate, "Use YYYY-MM-DD"), start: z.string().refine(isValidTime, "Use HH:MM"), minutes: z.number().int().min(5).max(480) }), req.body);
+    scheduleTaskTime(c.db, String(req.params.id), b, c.tz);
     res.json({ state: state(req, c) });
   }),
 );

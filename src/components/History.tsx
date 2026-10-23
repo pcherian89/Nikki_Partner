@@ -81,7 +81,11 @@ function Row({ item, actions }: { item: HistoryItem; actions: AppActions }) {
  * doesn't compete with today's task list. Nothing in it is deleted by replanning.
  */
 export function EarlierToday({ state, actions }: { state: AppState; actions: AppActions }) {
-  const items = state.history;
+  // Only things that really happened or were answered. Plan edits that never began (blocks dropped or moved before
+  // their time, tasks that were done anyway) are not "earlier today": they stay in the data but out of sight.
+  const items = state.history.filter(
+    (i) => i.workedMinutes > 0 || ["done", "partial", "skipped", "unconfirmed"].includes(i.status) || (i.status === "rescheduled" && i.start <= state.now),
+  );
   if (!items.length) return null;
   const open = items.filter((i) => i.status === "unconfirmed").length;
   return (
