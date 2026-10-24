@@ -459,3 +459,26 @@ test("Add time: a task has no time until the user gives it one; the block is pin
   assert.equal(second.json.state.plan.blocks.filter((x: any) => x.pinned).length, 2);
   assert.equal(second.json.state.plan.version, 2);
 });
+
+test("a task added in chat appears on today's list with no time, even after an earlier planning request", async () => {
+  // an earlier planning request in the conversation must not make later additions schedulable
+  fakeReply({ plan: planReply([]) , message: "ok" });
+  await chat("plan my day");
+  fakeReply({
+    message: "Added.",
+    captured_items: [item("Check financials")],
+    plan: planReply([blk("11:00", "12:00", "n1")]),
+  });
+  const r = await chat("Add 'Check financials' as a task");
+  const s = r.json.state;
+  const t = s.tasks.find((x: any) => x.title === "Check financials");
+  assert.equal(t.plannedDate, DAY, "visible on today's list, not floating unassigned");
+  assert.ok(s.days[0].openIds.includes(t.id));
+  assert.equal(t.estimateMinutes, null);
+  assert.equal(s.proposal, null, "no schedule proposed");
+  assert.equal(s.plan, null);
+  // naming a day still wins
+  fakeReply({ captured_items: [item("Book flights", { planned_date: TOMORROW })] });
+  const r2 = await chat("Add book flights for tomorrow");
+  assert.equal(r2.json.state.tasks.find((x: any) => x.title === "Book flights").plannedDate, TOMORROW);
+});

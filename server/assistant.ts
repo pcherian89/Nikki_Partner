@@ -82,9 +82,11 @@ interface Resolved {
 const MAX_CAPTURES = 25;
 
 /** Planning is something the user asks for. Capturing tasks must never come back with times attached. */
-const PLAN_WORDS = /\b(plan|planning|schedule|scheduling|timetable|organi[sz]e|arrange|lay out|block out|time[- ]?block|agenda|replan|re-plan)\b|what should i do (first|next)|fit (it|them|these) in/i;
-export function wantsPlan(text: string, recentUserTexts: string[], hasPendingPlan: boolean): boolean {
-  return hasPendingPlan || PLAN_WORDS.test(text) || recentUserTexts.slice(-2).some((t) => PLAN_WORDS.test(t));
+const PLAN_WORDS = /\b(plan|planning|schedule|scheduling|timetable|organi[sz]e|arrange|lay out|block out|time[- ]?block|agenda|replan|re-plan)\b|what should i do (first|next)|fit (it|them|these) in|\b\d{1,2}(:\d{2})?\s*(am|pm)\b|\b\d{1,2}:\d{2}\b|\bat \d{1,2}\b|\b\d{1,2}(:\d{2})?\s*(-|–|to|until)\s*\d{1,2}(:\d{2})?\b/i;
+export function wantsPlan(text: string, hasPendingPlan: boolean, answeringQuestion: boolean): boolean {
+  // Only this message decides (an earlier "plan my day" doesn't make every later "add a task" a planning request),
+  // unless a plan is waiting for confirmation or Nikki just asked a question the user is answering.
+  return hasPendingPlan || answeringQuestion || PLAN_WORDS.test(text);
 }
 
 const emptyResponse = (): ModelResponse => ModelResponse.parse({ message: "", questions: [], captured_items: [], task_updates: [], meetings: [], context_updates: [], plan: null });
@@ -204,7 +206,8 @@ export function resolveResponse(
       deadlineTime: deadline && c.deadline_time && isValidTime(c.deadline_time) ? c.deadline_time : null,
       priority: c.priority,
       optional: c.optional,
-      plannedDate: c.planned_date && isValidDate(c.planned_date) && c.planned_date >= ctx.date ? c.planned_date : null,
+      // A task added in chat lands on the list for the day named, else today — never as an invisible, unassigned task.
+      plannedDate: c.planned_date && isValidDate(c.planned_date) && c.planned_date >= ctx.date ? c.planned_date : c.kind === "action" ? ctx.date : null,
       project: c.project,
       createdAt: ts,
       updatedAt: ts,
@@ -262,8 +265,8 @@ export function resolveResponse(
     .map((c) => ({ id: newId("cs"), field: c.field, action: c.action, value: c.value.trim(), reason: c.reason, status: "pending" }));
 
   let draft: PlanDraft | null = null;
-  if (resp.plan && ctx.allowPlan === false && ctx.kind === "chat" && resp.captured_items.length > 0 && !ctx.demo) {
-    notes.push("You added tasks without asking for a schedule, so Nikki's suggested times were not used. Ask her to plan your day when you want one.");
+  if (resp.plan && ctx.allowPlan === false && ctx.kind === "chat" && !ctx.demo) {
+    notes.push("You didn't ask for a schedule, so the times Nikki suggested were not used. Say plan my day when you want one.");
   } else if (resp.plan && ctx.kind !== "wrapup") {
     const p = resp.plan;
     const resolve = (ref: string | null) => (ref ? (refMap.get(ref) ?? ref) : null);
@@ -429,8 +432,11 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
       demo: ws === "demo",
       allowPlan: wantsPlan(
         input.text,
-        history.filter((m) => m.role === "user").slice(-3, -1).map((m) => m.text),
         !!pending?.plan,
+        (() => {
+          const last = [...history].reverse().find((m) => m.role === "assistant" && !m.meta.system);
+          return !!last?.meta.questions?.length;
+        })(),
       ),
       memoryDb: db,
       projectOn: (id: string) => getProject(db, id),

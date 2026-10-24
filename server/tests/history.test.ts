@@ -140,7 +140,7 @@ test("bug 1b: a started block that overlaps the new plan is cut back to where th
   savePlan([{ start: "10:00", end: "11:30", kind: "focus", task: presentation, title: "Medical presentation" }], 90, { start: "10:00", end: "17:30" }, presentation);
   at("11:29");
   replanWith({ presentation, report }, 450, [{ start: "11:25", end: "13:25", kind: "task", task_ref: report, title: "KSN report" }]); // within the 10-minute grace
-  const r = await api("POST", "/api/messages", { text: "report now", clientRequestId: `rid-${++rid}-bbbbbbbb` });
+  const r = await api("POST", "/api/messages", { text: "Replan: report now", clientRequestId: `rid-${++rid}-bbbbbbbb` });
   assert.equal(r.status, 200, JSON.stringify(r.json));
   const c = await api("POST", `/api/proposals/${r.json.state.proposal.id}/confirm`, {});
   assert.equal(c.status, 200, JSON.stringify(c.json));
