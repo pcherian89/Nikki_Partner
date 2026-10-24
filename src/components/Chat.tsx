@@ -44,7 +44,20 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
     if (!ok) setText(v);
   };
 
-  const last = state.messages[state.messages.length - 1];
+  // Chat shows today's conversation; earlier days are one tap away. (Nikki's own memory of them is unchanged.)
+  const [showEarlier, setShowEarlier] = useState(false);
+  const dayOf = (iso: string) => {
+    try {
+      return new Intl.DateTimeFormat("en-CA", { timeZone: state.timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+    } catch {
+      return iso.slice(0, 10);
+    }
+  };
+  const isTodays = (m: ChatMessage) => dayOf(m.createdAt) === state.today || (!!state.proposal && m.meta.proposalId === state.proposal.id);
+  const visible = showEarlier ? state.messages : state.messages.filter(isTodays);
+  const earlierCount = state.messages.length - state.messages.filter(isTodays).length;
+
+  const last = visible[visible.length - 1];
   const lastNikki = last?.role === "assistant" && !last.meta.system ? last : null;
   const quickReplies = lastNikki
     ? lastNikki.meta.quickReplies?.length
@@ -79,12 +92,17 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
       </div>
 
       <div className="chat-scroll" aria-live="polite" ref={scrollRef}>
-        {state.messages.length === 0 && !pending && (
+        {earlierCount > 0 && (
+          <button className="link small earlier-link" onClick={() => setShowEarlier((v) => !v)}>
+            {showEarlier ? "Hide earlier days" : `Show earlier messages (${earlierCount})`}
+          </button>
+        )}
+        {visible.length === 0 && !pending && (
           <div className="empty-chat">
-            <p>What do you need to plan?</p>
+            <p>{state.messages.length ? "A fresh day. What's on your mind?" : "What do you need to plan?"}</p>
           </div>
         )}
-        {state.messages.map((m) => (
+        {visible.map((m) => (
           <div key={m.id}>
             <Message m={m} state={state} actions={actions} />
             {proposal && m.meta.proposalId === proposal.id && !proposal.plan && proposal.status === "pending" && (
