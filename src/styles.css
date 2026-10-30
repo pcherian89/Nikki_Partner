@@ -6,6 +6,7 @@
   --line: rgba(244, 247, 242, 0.08);
   --line-strong: rgba(244, 247, 242, 0.14);
   --accent: #a3e635;
+  --accent-ink: #a3e635;
   --accent-soft: rgba(163, 230, 53, 0.12);
   --accent-line: rgba(163, 230, 53, 0.35);
   --text: #f4f7f2;
@@ -213,7 +214,7 @@ textarea {
   background: none;
   border: 0;
   padding: 0;
-  color: var(--accent);
+  color: var(--accent-ink);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -321,7 +322,7 @@ input[type="time"] {
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
   margin-right: 6px;
   vertical-align: middle;
 }
@@ -396,7 +397,7 @@ input[type="time"] {
   display: grid;
   place-items: center;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-ink);
   background: radial-gradient(circle at 30% 30%, #26362b, #141b16);
 }
 .float {
@@ -492,7 +493,7 @@ input[type="time"] {
   border-color: rgba(242, 198, 109, 0.4);
 }
 .mode-badge.live {
-  color: var(--accent);
+  color: var(--accent-ink);
   border-color: var(--accent-line);
 }
 .mode-badge.off {
@@ -848,7 +849,7 @@ input[type="time"] {
   font-size: 14px;
 }
 .block-row.kind-focus .block-title {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 .block-row.kind-break .block-title,
@@ -894,7 +895,7 @@ input[type="time"] {
   padding-left: 0;
 }
 .diff-add {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .diff-remove {
   color: var(--danger);
@@ -1559,7 +1560,7 @@ details summary {
 .btn.timer-on {
   background: var(--accent-soft);
   border-color: var(--accent-line);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .steps-wrap {
   margin-top: 10px;
@@ -1826,7 +1827,7 @@ details summary {
   align-items: center;
   gap: 10px;
   margin: 2px 0;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 12px;
   font-weight: 650;
 }
@@ -2366,7 +2367,7 @@ details summary {
 }
 .decision-value.v-today,
 .decision-value.v-tomorrow {
-  color: var(--accent);
+  color: var(--accent-ink);
   background: var(--accent-soft);
 }
 .decision-value.v-drop {
@@ -2589,7 +2590,7 @@ details summary {
 }
 .now-card.live .eyebrow,
 .now-card.good .eyebrow {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 @keyframes now-in {
   from {
@@ -2758,7 +2759,7 @@ details summary {
 .btn.primary-soft {
   background: var(--accent-soft);
   border-color: var(--accent-line);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .btn.danger-text,
 .danger-text {
@@ -2800,7 +2801,7 @@ details summary {
   background: linear-gradient(180deg, rgba(242, 198, 109, 0.07), transparent 70%), var(--surface);
 }
 .focus-card .eyebrow {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .focus-card.warn .eyebrow {
   color: var(--warn);
@@ -2870,7 +2871,7 @@ details summary {
   font-weight: 700;
 }
 .receipts li.ok .receipt-mark {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .receipts li.fail .receipt-mark {
   color: var(--danger);
@@ -2968,7 +2969,7 @@ details summary {
   border-top: 0;
 }
 .project-row:hover strong {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .project-row-main {
   display: flex;
@@ -3062,7 +3063,7 @@ body {
 .tab.active,
 .segmented button.active {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
   box-shadow: inset 0 0 0 1px var(--accent-line);
 }
 .topbar {
@@ -3099,7 +3100,7 @@ body {
   font-weight: 650;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .hero-title {
   margin: 2px 0 2px;
@@ -3138,7 +3139,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .hero-next-title {
   font-weight: 650;
@@ -3222,7 +3223,7 @@ body {
 }
 .day-task .btn.timer-on {
   background: rgba(163, 230, 53, 0.16);
-  color: var(--accent);
+  color: var(--accent-ink);
   border-color: var(--accent-line);
 }
 .add-time-link {
@@ -3259,7 +3260,7 @@ body {
   background: rgba(163, 230, 53, 0.04);
 }
 .add-task input::placeholder {
-  color: var(--accent);
+  color: var(--accent-ink);
   opacity: 0.75;
 }
 
@@ -3314,7 +3315,7 @@ body {
 /* Section heads and small headings */
 .section-summary,
 .eyebrow {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .completed .struck,
 .struck {
@@ -3362,7 +3363,7 @@ body {
   padding: 4px 10px;
 }
 .earlier-link:hover {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* =====================================================================
@@ -3622,7 +3623,7 @@ body {
 }
 .chat-sub {
   font-size: 11.5px;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .day-chip-wa {
   align-self: center;
@@ -3713,7 +3714,7 @@ body {
 .chip.quick {
   background: transparent;
   border-color: var(--accent-line);
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 12.5px;
   padding: 5px 12px;
 }
@@ -3769,4 +3770,165 @@ body {
 .receipts .receipt-text {
   flex: 1;
   min-width: 0;
+}
+
+
+/* =====================================================================
+   Light theme. Same structure and the same lime; paper-white surfaces,
+   a deeper green for text accents so it stays readable on white.
+   Chosen in Context → Appearance (Light / Dark / Auto).
+   ===================================================================== */
+:root[data-theme="light"] {
+  --bg: #f2f5ec;
+  --surface: #ffffff;
+  --surface-2: #f3f6ee;
+  --surface-3: #e5ecdc;
+  --line: rgba(30, 50, 20, 0.09);
+  --line-strong: rgba(30, 50, 20, 0.17);
+  --accent: #8bd01f;
+  --accent-ink: #4d7c0f;
+  --accent-soft: rgba(132, 204, 22, 0.15);
+  --accent-line: rgba(101, 163, 13, 0.5);
+  --text: #15210f;
+  --text-2: #475642;
+  --text-3: #6d7b68;
+  --warn: #a16207;
+  --danger: #c2410c;
+  --teal: #0f766e;
+  --teal-soft: rgba(15, 118, 110, 0.12);
+  --violet: #6d4fd1;
+  --violet-soft: rgba(109, 79, 209, 0.12);
+  --lime-glow: rgba(132, 204, 22, 0.35);
+  --shadow: 0 1px 2px rgba(30, 50, 20, 0.06), 0 10px 26px rgba(30, 50, 20, 0.08);
+  color-scheme: light;
+}
+:root[data-theme="light"] body {
+  background-image: radial-gradient(900px 520px at 90% -8%, rgba(163, 230, 53, 0.28), transparent 62%), radial-gradient(700px 480px at -10% 30%, rgba(45, 212, 191, 0.1), transparent 60%);
+}
+:root[data-theme="light"] .topbar {
+  background: rgba(242, 245, 236, 0.9);
+}
+:root[data-theme="light"] .card,
+:root[data-theme="light"] .day-task {
+  background: var(--surface);
+}
+:root[data-theme="light"] .day-task {
+  background: linear-gradient(180deg, #ffffff, #f7faf2);
+}
+:root[data-theme="light"] .day-task[data-priority="high"] {
+  background: linear-gradient(90deg, rgba(132, 204, 22, 0.16), rgba(132, 204, 22, 0) 55%), #ffffff;
+}
+:root[data-theme="light"] .day-task[data-risk="yes"] {
+  background: linear-gradient(90deg, rgba(234, 179, 8, 0.18), rgba(234, 179, 8, 0) 55%), #ffffff;
+}
+:root[data-theme="light"] .day-task.is-running {
+  background: linear-gradient(90deg, rgba(132, 204, 22, 0.28), rgba(132, 204, 22, 0.06)), #ffffff;
+}
+:root[data-theme="light"] .hero {
+  background: radial-gradient(420px 180px at 100% 0%, rgba(163, 230, 53, 0.5), transparent 70%), radial-gradient(360px 200px at 0% 100%, rgba(45, 212, 191, 0.2), transparent 70%),
+    linear-gradient(160deg, #f4fbe3, #e6f4c8);
+  box-shadow: 0 10px 30px rgba(60, 90, 20, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+:root[data-theme="light"] .hero-next {
+  background: rgba(255, 255, 255, 0.6);
+}
+:root[data-theme="light"] .focus-card {
+  background: linear-gradient(180deg, rgba(132, 204, 22, 0.14), transparent 70%), #ffffff;
+}
+:root[data-theme="light"] .banner {
+  background: linear-gradient(90deg, rgba(45, 212, 191, 0.13), transparent 60%), #ffffff;
+}
+:root[data-theme="light"] .avatar-fallback {
+  background: radial-gradient(circle at 30% 30%, #e8f3d4, #cfe3b0);
+}
+:root[data-theme="light"] .cap-break {
+  background: #9cc16f;
+}
+:root[data-theme="light"] .cap-buffer {
+  background: #c4d8a8;
+}
+:root[data-theme="light"] .cap-meeting {
+  background: #9aa7b3;
+}
+/* chat */
+:root[data-theme="light"] .chat-scroll {
+  background-color: #e9efe0;
+  background-image: radial-gradient(rgba(77, 124, 15, 0.1) 1px, transparent 1.4px), radial-gradient(rgba(15, 118, 110, 0.07) 1px, transparent 1.4px);
+}
+:root[data-theme="light"] .chat-head {
+  background: linear-gradient(90deg, rgba(132, 204, 22, 0.16), transparent 70%);
+}
+:root[data-theme="light"] .msg.assistant .bubble {
+  background: #ffffff;
+  box-shadow: 0 1px 1px rgba(30, 50, 20, 0.15);
+}
+:root[data-theme="light"] .msg.assistant .bubble::before {
+  border-top-color: #ffffff;
+  border-right-color: #ffffff;
+}
+:root[data-theme="light"] .composer {
+  background: #f4f7ee;
+}
+:root[data-theme="light"] .composer textarea {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+:root[data-theme="light"] .send-btn:disabled {
+  background: #dfe7d4;
+  color: #8a9885;
+}
+:root[data-theme="light"] .day-chip-wa {
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--text-2);
+}
+:root[data-theme="light"] .btn.primary-soft,
+:root[data-theme="light"] .day-task .btn.primary-soft {
+  color: #0d1408;
+}
+:root[data-theme="light"] .tag.warn {
+  background: rgba(234, 179, 8, 0.16);
+}
+:root[data-theme="light"] .sheet-backdrop {
+  background: rgba(30, 45, 20, 0.35);
+}
+:root[data-theme="light"] .day-other input,
+:root[data-theme="light"] input[type="date"],
+:root[data-theme="light"] input[type="time"] {
+  color-scheme: light;
+}
+
+/* Appearance control */
+.theme-toggle {
+  display: inline-flex;
+  gap: 2px;
+}
+.theme-quick {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  color: var(--accent-ink);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.theme-quick:hover {
+  border-color: var(--accent-line);
+}
+@media (max-width: 520px) {
+  .theme-quick {
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
+  }
+  .topbar {
+    gap: 8px;
+  }
+  .tab {
+    padding: 6px 8px;
+  }
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppState, Workspace } from "../shared/types";
 import { api, ApiError, newRequestId, setApiWorkspace } from "./api";
 import { Avatar } from "./components/Avatar";
+import { ThemeQuickToggle } from "./components/Appearance";
 import { Chat } from "./components/Chat";
 import { ContextView } from "./components/ContextView";
 import { Everything } from "./components/Everything";
@@ -257,6 +258,7 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <ThemeQuickToggle />
         <ModeBadge state={state} onClick={() => setView("context")} />
       </header>
 

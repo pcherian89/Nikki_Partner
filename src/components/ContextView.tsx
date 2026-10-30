@@ -1,5 +1,6 @@
 import { NotificationsCard } from "./Reminders";
 import { StrategyCard } from "./Strategy";
+import { AppearanceCard } from "./Appearance";
 import { useEffect, useMemo, useState } from "react";
 import type { AppState, Profile } from "../../shared/types";
 import { api, browserTimezone } from "../api";
@@ -112,6 +113,8 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
           )}
         </div>
       </form>
+
+      <AppearanceCard />
 
       <StrategyCard state={state} actions={actions} />
 
