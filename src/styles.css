@@ -3604,3 +3604,169 @@ body {
 .pane-switch button {
   min-height: 36px;
 }
+
+/* =====================================================================
+   Chat, WhatsApp-style: tailed bubbles, times inside, a day chip, a pill composer.
+   ===================================================================== */
+.chat-scroll {
+  gap: 3px;
+  padding: 12px 10px;
+  background-color: #0a100c;
+  background-image: radial-gradient(rgba(163, 230, 53, 0.05) 1px, transparent 1.4px), radial-gradient(rgba(45, 212, 191, 0.04) 1px, transparent 1.4px);
+  background-size: 22px 22px, 22px 22px;
+  background-position: 0 0, 11px 11px;
+}
+.chat-head {
+  padding: 10px 14px;
+  gap: 10px;
+}
+.chat-sub {
+  font-size: 11.5px;
+  color: var(--accent);
+}
+.day-chip-wa {
+  align-self: center;
+  margin: 8px auto 10px;
+  width: fit-content;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.msg {
+  margin: 0 0 3px;
+}
+.msg .bubble {
+  position: relative;
+  max-width: 82%;
+  padding: 6px 9px 5px 10px;
+  font-size: 14px;
+  line-height: 1.35;
+  border-radius: 10px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+}
+.msg.assistant .bubble {
+  background: #1b2620;
+  border: 0;
+  border-top-left-radius: 2px;
+}
+.msg.assistant .bubble::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -6px;
+  border: 6px solid transparent;
+  border-top-color: #1b2620;
+  border-right-color: #1b2620;
+}
+.msg.user .bubble {
+  background: linear-gradient(135deg, #a3e635, #8fd12a);
+  color: #0d1408;
+  font-weight: 500;
+  border-top-right-radius: 2px;
+}
+.msg.user .bubble::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: -6px;
+  border: 6px solid transparent;
+  border-top-color: #8fd12a;
+  border-left-color: #8fd12a;
+}
+.msg-time {
+  float: right;
+  margin: 6px 0 -2px 10px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.msg.user .msg-time {
+  color: rgba(13, 20, 8, 0.6);
+}
+.msg.user .ticks {
+  color: #14532d;
+  letter-spacing: -2px;
+}
+.msg-text::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+.msg.assistant .bubble.typing {
+  padding: 10px 12px;
+}
+.proposal-link {
+  margin-left: 0;
+  width: 100%;
+}
+.inline-proposal {
+  margin: 6px 0;
+}
+.suggest-row {
+  justify-content: flex-end;
+}
+.chip.quick {
+  background: transparent;
+  border-color: var(--accent-line);
+  color: var(--accent);
+  font-size: 12.5px;
+  padding: 5px 12px;
+}
+.composer {
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #0f1712;
+  border-top: 1px solid var(--line);
+}
+.composer textarea {
+  flex: 1;
+  min-height: 40px;
+  max-height: 120px;
+  border-radius: 22px;
+  padding: 10px 16px;
+  background: #1b2620;
+  border: 0;
+  resize: none;
+  line-height: 1.3;
+}
+.composer textarea:focus {
+  outline: 1px solid var(--accent-line);
+}
+.send-btn {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--accent);
+  color: #0d1408;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(163, 230, 53, 0.3);
+}
+.send-btn:disabled {
+  background: #26352b;
+  color: var(--text-3);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.composer .icon-btn,
+.composer .mic-btn {
+  border-radius: 50%;
+}
+.receipts li {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  font-size: 13px;
+}
+.receipts .receipt-text {
+  flex: 1;
+  min-width: 0;
+}

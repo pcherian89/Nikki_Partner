@@ -87,7 +87,7 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
         <Avatar size={44} glow />
         <div>
           <div className="chat-title">Nikki</div>
-          {(demo || liveOff) && <div className="chat-sub">{demo ? "Demo mode · scripted, not AI" : "Live AI not set up"}</div>}
+          <div className="chat-sub">{demo ? "Demo mode · scripted, not AI" : liveOff ? "Live AI not set up" : pending ? "typing…" : "online"}</div>
         </div>
       </div>
 
@@ -102,8 +102,9 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
             <p>{state.messages.length ? "A fresh day. What's on your mind?" : "What do you need to plan?"}</p>
           </div>
         )}
-        {visible.map((m) => (
+        {visible.map((m, i) => (
           <div key={m.id}>
+            {(i === 0 || dayOf(visible[i - 1].createdAt) !== dayOf(m.createdAt)) && <div className="day-chip-wa">{dayLabel(dayOf(m.createdAt), state.today)}</div>}
             <Message m={m} state={state} actions={actions} />
             {proposal && m.meta.proposalId === proposal.id && !proposal.plan && proposal.status === "pending" && (
               // Small changes (take off today, move, delete…) can be confirmed right here.
@@ -134,7 +135,6 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
               </div>
             )}
             <div className="msg assistant">
-              <Avatar size={28} />
               <div className="bubble typing" aria-label="Nikki is thinking">
                 <span />
                 <span />
@@ -191,7 +191,7 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
       >
         <textarea
           ref={inputRef}
-          rows={2}
+          rows={1}
           value={text}
           placeholder={liveOff ? "Live AI isn't configured — add an API key or use Demo mode." : "Tell Nikki anything…"}
           onChange={(e) => setText(e.target.value)}
@@ -210,13 +210,30 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
             onError={(msg) => actions.toast({ text: msg, tone: "error" })}
           />
         )}
-        <button className="btn primary" disabled={!text.trim() || !!pending || liveOff}>
-          {pending ? "…" : "Send"}
+        <button className="send-btn" aria-label="Send" disabled={!text.trim() || !!pending || liveOff}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+            <path d="M3.4 20.4 21 12 3.4 3.6l-.1 6.5L15 12 3.3 13.9z" />
+          </svg>
         </button>
       </form>
     </div>
   );
 }
+
+const timeOf = (iso: string, tz: string) => {
+  try {
+    return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: tz });
+  } catch {
+    return "";
+  }
+};
+const dayLabel = (day: string, today: string) => {
+  if (day === today) return "Today";
+  const y = new Date(`${today}T12:00:00Z`);
+  y.setUTCDate(y.getUTCDate() - 1);
+  if (day === y.toISOString().slice(0, 10)) return "Yesterday";
+  return new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+};
 
 const mins = (n: number) => (n >= 60 ? `${Math.floor(n / 60)}h${n % 60 ? ` ${n % 60}m` : ""}` : `${n}m`);
 
@@ -297,7 +314,12 @@ function Message({ m, state, actions }: { m: ChatMessage; state: AppState; actio
   if (m.role === "user") {
     return (
       <div className="msg user">
-        <div className="bubble">{m.meta.kind === "replan" ? `↻ ${m.text}` : m.text}</div>
+        <div className="bubble">
+          {m.meta.kind === "replan" ? `↻ ${m.text}` : m.text}
+          <span className="msg-time">
+            {timeOf(m.createdAt, state.timezone)} <span className="ticks" aria-hidden>✓✓</span>
+          </span>
+        </div>
       </div>
     );
   }
@@ -307,10 +329,12 @@ function Message({ m, state, actions }: { m: ChatMessage; state: AppState; actio
   const questionsInText = questions.every((q) => m.text.includes(q));
   return (
     <div className="msg assistant">
-      <Avatar size={28} />
       <div className="bubble">
         {m.meta.demo && <div className="demo-tag">Demo reply · scripted</div>}
-        <div className="msg-text">{m.text}</div>
+        <div className="msg-text">
+          {m.text}
+          <span className="msg-time">{timeOf(m.createdAt, state.timezone)}</span>
+        </div>
         {questions.length > 0 && !questionsInText && (
           <ol className="questions">
             {questions.map((q) => (
