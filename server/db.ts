@@ -873,7 +873,7 @@ export function deleteMeeting(db: DB, id: string) {
 // ---------- messages ----------
 
 export function addMessage(db: DB, m: Omit<ChatMessage, "id" | "createdAt"> & { id?: string }): ChatMessage {
-  const msg: ChatMessage = { id: m.id ?? newId("msg"), role: m.role, text: m.text, meta: m.meta ?? {}, createdAt: nowIso() };
+  const msg: ChatMessage = { id: m.id ?? newId("msg"), role: m.role, text: m.text, meta: m.meta ?? {}, createdAt: clockIso() };
   db.prepare("INSERT INTO messages (id, role, text, meta, created_at) VALUES (?, ?, ?, ?, ?)").run(
     msg.id,
     msg.role,

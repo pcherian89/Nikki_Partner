@@ -3364,3 +3364,243 @@ body {
 .earlier-link:hover {
   color: var(--accent);
 }
+
+/* =====================================================================
+   Compact type scale: smaller, tighter, still readable. Everything above is
+   unchanged in structure; these rules only resize.
+   ===================================================================== */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  touch-action: manipulation;
+}
+body {
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-x: hidden;
+}
+/* iPhone zooms the whole page when a text field under 16px is focused, and stays zoomed. Keep fields at 16px on touch screens. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+.h2 {
+  font-size: 16px;
+}
+.h3,
+.section-summary {
+  font-size: 11.5px;
+  margin-bottom: 6px;
+}
+.eyebrow {
+  font-size: 10.5px;
+}
+.small {
+  font-size: 12px;
+}
+.card {
+  padding: 14px;
+  border-radius: 14px;
+}
+.btn {
+  font-size: 13px;
+  padding: 7px 14px;
+}
+.btn.small {
+  font-size: 12px;
+  padding: 4px 11px;
+}
+.tag {
+  font-size: 10.5px;
+  padding: 1px 7px;
+}
+.tab {
+  font-size: 13.5px;
+  padding: 6px 12px;
+}
+.segmented button {
+  font-size: 13px;
+}
+.now-title {
+  font-size: 15px;
+}
+.msg .bubble {
+  font-size: 13.5px;
+  padding: 8px 12px;
+}
+.chat-title {
+  font-size: 14px;
+}
+.chat-head .avatar {
+  width: 36px !important;
+  height: 36px !important;
+}
+.chat-head .avatar img {
+  width: 36px;
+  height: 36px;
+}
+
+/* Hero */
+.hero {
+  padding: 14px;
+  margin-bottom: 12px;
+  border-radius: 18px;
+}
+.hero-top {
+  gap: 12px;
+}
+.hero .avatar {
+  width: 44px !important;
+  height: 44px !important;
+}
+.hero .avatar img {
+  width: 44px;
+  height: 44px;
+}
+.hero-eyebrow {
+  font-size: 10px;
+}
+.hero-title {
+  font-size: 18px;
+  margin: 1px 0;
+}
+.hero-line {
+  font-size: 12.5px;
+}
+.hero-next {
+  margin-top: 10px;
+  padding: 7px 10px;
+}
+.hero-next-title {
+  font-size: 13.5px;
+}
+.hero-next-why {
+  font-size: 11.5px;
+}
+.hero-side .progress-ring {
+  transform: scale(0.82);
+  transform-origin: top right;
+}
+
+/* Task rows: one tight line each — title, chips, Start and ⋯ side by side */
+.day-tasks .task-list {
+  gap: 6px;
+}
+.day-task {
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+.day-task .task-main {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 9px;
+}
+.day-task .task-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 1px;
+}
+.day-task .task-actions {
+  flex-shrink: 0;
+  margin-left: 0;
+  gap: 4px;
+}
+.day-task .slot-title,
+.slot-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.day-task .check {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+}
+.day-task .btn.small {
+  font-size: 12px;
+  padding: 4px 12px;
+}
+.day-task .icon-btn {
+  padding: 2px 4px;
+}
+.task-meta {
+  gap: 4px 6px;
+}
+.task-meta .muted.small,
+.task-meta .tag {
+  font-size: 10.5px;
+}
+.add-time-link {
+  font-size: 11px;
+  margin-top: 0;
+}
+.workload {
+  font-size: 11.5px;
+  margin: 0 0 8px;
+}
+.add-task input {
+  padding: 8px 12px;
+}
+.reminder-strip,
+.banner {
+  font-size: 13px;
+}
+.focus-card .now-title {
+  font-size: 16px;
+}
+
+@media (max-width: 520px) {
+  .hero {
+    padding: 12px;
+  }
+  .hero-title {
+    font-size: 16.5px;
+  }
+  .hero-top .avatar {
+    width: 40px !important;
+    height: 40px !important;
+  }
+  .hero-top .avatar img {
+    width: 40px;
+    height: 40px;
+  }
+  .day-task .task-main {
+    flex-wrap: nowrap;
+  }
+  .day-task .task-text {
+    flex-basis: auto;
+  }
+  .day-task .task-actions {
+    margin-left: 0;
+  }
+  .topbar {
+    padding: 8px 12px;
+  }
+}
+.day-task .btn.small {
+  min-height: 32px;
+  font-size: 12.5px;
+  padding: 4px 13px;
+}
+.day-task .icon-btn {
+  min-width: 34px;
+  min-height: 32px;
+}
+.btn.small {
+  min-height: 32px;
+  font-size: 12.5px;
+  padding: 4px 12px;
+}
+.segmented button {
+  min-height: 34px;
+}
+.tab {
+  min-height: 36px;
+  font-size: 13.5px;
+}
+.pane-switch button {
+  min-height: 36px;
+}

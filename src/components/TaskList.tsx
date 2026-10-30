@@ -257,7 +257,7 @@ export function TaskRow({
     </button>
   ) : (
     <button className="btn small ghost" onClick={() => move(task, "today")} aria-label={`Work on ${task.title} today`}>
-      Work today
+      Do today
     </button>
   );
 
