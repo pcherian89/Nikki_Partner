@@ -482,3 +482,19 @@ test("a task added in chat appears on today's list with no time, even after an e
   const r2 = await chat("Add book flights for tomorrow");
   assert.equal(r2.json.state.tasks.find((x: any) => x.title === "Book flights").plannedDate, TOMORROW);
 });
+
+test("replying 'confirm' to a waiting proposal confirms it (no model call); otherwise 'yes' is just a message", async () => {
+  const a = await mk({ title: "Report", plannedDate: DAY, estimateMinutes: 60 });
+  fakeReply({ message: "Here's a plan. Tap Confirm, or just reply confirm.", plan: planReply([blk("11:00", "12:00", a.id)]) });
+  const r = await chat("Plan my day");
+  assert.ok(r.json.state.proposal);
+  let modelCalls = 0;
+  setProvider({ name: "fake", model: "fake", generate: async () => ((modelCalls++), { model: "fake", text: JSON.stringify({ ...blank, message: "x" }) }) });
+  const c = await chat("confirm");
+  assert.equal(modelCalls, 0, "no model call needed");
+  assert.ok(c.json.state.plan, "the plan was saved");
+  assert.match(c.json.state.messages.at(-1).text, /Confirmed/);
+  // nothing waiting: "yes" goes to the model like any message
+  await chat("yes");
+  assert.equal(modelCalls, 1);
+});

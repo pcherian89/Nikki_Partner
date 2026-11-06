@@ -113,13 +113,22 @@ export function Chat({ state, actions, pending, sendError, onRetry, onDismissErr
               </div>
             )}
             {proposal && m.meta.proposalId === proposal.id && proposal.plan && (
-              <button className="proposal-link" onClick={onShowPlan}>
+              <div className="proposal-link plan-ready">
                 <span>
                   <strong>{proposal.kind === "replan" ? "Updated plan ready" : proposal.plan.date === state.tomorrow.date ? "Plan for tomorrow ready" : "Plan ready"}</strong>
-                  <span className="muted small block">Review and confirm</span>
+                  <span className="muted small block">Confirm it here, or review it first</span>
                 </span>
-                <span aria-hidden>→</span>
-              </button>
+                <span className="row gap">
+                  {proposal.status === "pending" && (
+                    <button className="btn small primary" onClick={() => actions.mutate("POST", `/api/proposals/${proposal.id}/confirm`, {})}>
+                      Confirm
+                    </button>
+                  )}
+                  <button className="btn small ghost" onClick={onShowPlan}>
+                    Review
+                  </button>
+                </span>
+              </div>
             )}
           </div>
         ))}

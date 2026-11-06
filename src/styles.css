@@ -3932,3 +3932,6 @@ body {
     padding: 6px 8px;
   }
 }
+.proposal-link.plan-ready {
+  cursor: default;
+}

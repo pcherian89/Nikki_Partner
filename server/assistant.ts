@@ -46,7 +46,7 @@ import { addDays, fromMinutes, weekdayOf, isValidDate, isValidTime, localNow, to
 import { findDuplicate, freeMinutes, validateMeeting, validatePlanDraft } from "./validate.js";
 import { UserFacingError } from "./errors.js";
 import { ActionRequest, recordCreated, runActions } from "./commands.js";
-import { markProvisional, pinnedToKeep } from "./planOps.js";
+import { confirmProposal, markProvisional, pinnedToKeep } from "./planOps.js";
 import { getProject, listProjects, projectViews, validateProjectDraft } from "./projects.js";
 import { listMemory, memoryForModel, recentMinutesByProject, validateMemoryUpdates, weeklyFacts, weeklySummary } from "./memory.js";
 import { activeReminders } from "./reminders.js";
@@ -80,6 +80,9 @@ interface Resolved {
 }
 
 const MAX_CAPTURES = 25;
+
+/** A reply that means "yes, apply it". Only honoured when a proposal is waiting and Nikki's last message was about it. */
+const CONFIRM_WORDS = /^\s*(please\s+)?(yes[,!. ]*)?(confirm(ed)?( it| that| plan| all)?|go ahead|do it|looks good|sounds good|apply( it| that)?|approve(d)?|yes|yep|yeah|ok(ay)?|sure|that works)(\s+please)?[.! ]*$/i;
 
 /** Planning is something the user asks for. Capturing tasks must never come back with times attached. */
 const PLAN_WORDS = /\b(plan|planning|schedule|scheduling|timetable|organi[sz]e|arrange|lay out|block out|time[- ]?block|agenda|replan|re-plan)\b|what should i do (first|next)|fit (it|them|these) in|\b\d{1,2}(:\d{2})?\s*(am|pm)\b|\b\d{1,2}:\d{2}\b|\bat \d{1,2}\b|\b\d{1,2}(:\d{2})?\s*(-|–|to|until)\s*\d{1,2}(:\d{2})?\b/i;
@@ -411,6 +414,22 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
   const now = localNow(input.timezone);
   const userMsg = addMessage(db, { role: "user", text: input.text, meta: { kind: input.kind } });
   try {
+    // Replying "confirm" (or yes / go ahead) to a waiting proposal confirms it, exactly like the Confirm button.
+    const waiting = input.kind === "chat" ? latestPendingProposal(db) : null;
+    if (waiting && CONFIRM_WORDS.test(input.text)) {
+      const lastAssistant = [...recentMessages(db, 6)].reverse().find((m) => m.role === "assistant" && !m.meta.system);
+      if (lastAssistant?.meta.proposalId === waiting.id) {
+        let text: string;
+        try {
+          confirmProposal(db, waiting.id, { timezone: input.timezone, source: ws === "demo" ? "demo" : "nikki" });
+          text = waiting.plan ? "Confirmed. Your plan is saved." : waiting.projectPlan ? "Confirmed. The project is saved." : "Confirmed. Done.";
+        } catch (e) {
+          text = e instanceof UserFacingError ? `I couldn't apply that: ${e.message}${e.details?.length ? ` ${e.details[0]}` : ""}` : "I couldn't apply that. Try the Confirm button.";
+        }
+        const message = addMessage(db, { role: "assistant", text, meta: { kind: input.kind } });
+        return { message, proposal: null };
+      }
+    }
     const profile = getProfile(db);
     const tasks = listTasks(db);
     const meetings = listMeetings(db, now.date);
@@ -618,7 +637,7 @@ function persistTurn(
       role: "assistant",
       text:
         resp.message.trim() ||
-        (resp.questions.length ? "A couple of quick questions:" : proposal ? "Here's the change. Tap Confirm to apply it." : "Got it."),
+        (resp.questions.length ? "A couple of quick questions:" : proposal ? "Here's the change. Tap Confirm, or just reply confirm." : "Got it."),
       meta: {
         ...a.demoMeta,
         kind: a.kind,

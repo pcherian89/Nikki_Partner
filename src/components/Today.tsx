@@ -186,7 +186,8 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
   const [replanOpen, setReplanOpen] = useState(false);
   const [wrapOpen, setWrapOpen] = useState(false);
   const canWrap = !!state.plan || doneTodayTasks(state).length > 0;
-  const showCheckIn = !state.newDay && !state.plan && !state.proposal?.plan && !!state.lastWrapUp && !state.wrapUpToday;
+  // The old morning check-in repeated finished work; the task list and "from earlier" line now cover it.
+  const showCheckIn = false;
   const tasks = useMemo(() => taskById(state.tasks), [state.tasks]);
   const complete = useCompletion(state, actions);
   const plan = state.plan;
