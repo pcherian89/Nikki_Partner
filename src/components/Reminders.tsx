@@ -16,10 +16,10 @@ export const whenLabel = (r: Reminder, state: AppState) =>
   `${r.localDate === state.today ? "Today" : r.localDate === state.tomorrow.date ? "Tomorrow" : fmtDate(r.localDate, false)}, ${fmtTime(r.localTime)}`;
 
 /** Add or edit a reminder. A reminder is separate from a task: it only reminds. */
-export function ReminderSheet({ state, actions, reminder, task, onClose }: { state: AppState; actions: AppActions; reminder?: Reminder; task?: Task | null; onClose: () => void }) {
+export function ReminderSheet({ state, actions, reminder, task, onClose, defaultDate, defaultTime }: { state: AppState; actions: AppActions; reminder?: Reminder; task?: Task | null; onClose: () => void; defaultDate?: string; defaultTime?: string }) {
   const [title, setTitle] = useState(reminder?.title ?? "");
-  const [date, setDate] = useState(reminder?.localDate ?? state.tomorrow.date);
-  const [time, setTime] = useState(reminder?.localTime ?? "09:00");
+  const [date, setDate] = useState(reminder?.localDate ?? defaultDate ?? state.tomorrow.date);
+  const [time, setTime] = useState(reminder?.localTime ?? defaultTime ?? "09:00");
   const [mode, setMode] = useState<"date" | "deadline">("date");
   const [days, setDays] = useState("1");
   const [error, setError] = useState<string | null>(null);

@@ -75,7 +75,7 @@ export default function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [view, setView] = useState<View>("today");
-  const [pane, setPane] = useState<"nikki" | "plan">("nikki");
+  const [pane, setPane] = useState<"nikki" | "plan">("plan");
   const [toast, setToastState] = useState<Toast | null>(null);
   const [pending, setPending] = useState<PendingSend | null>(null);
   const [sendError, setSendError] = useState<{ message: string; send: PendingSend } | null>(null);
@@ -275,13 +275,16 @@ export default function App() {
           ) : (
             <div className={`today-layout pane-${pane}`}>
               <div className="pane-switch" role="tablist">
+                <button role="tab" aria-selected={pane === "plan"} className={pane === "plan" ? "active" : ""} onClick={() => setPane("plan")}>
+                  Tasks{state.proposal ? <span className="dot" aria-label="proposal waiting" /> : null}
+                </button>
                 <button role="tab" aria-selected={pane === "nikki"} className={pane === "nikki" ? "active" : ""} onClick={() => setPane("nikki")}>
                   Chat
                 </button>
-                <button role="tab" aria-selected={pane === "plan"} className={pane === "plan" ? "active" : ""} onClick={() => setPane("plan")}>
-                  Plan{state.proposal ? <span className="dot" aria-label="proposal waiting" /> : null}
-                </button>
               </div>
+              <section className="col-plan" aria-label="Today's plan">
+                <Today state={state} actions={actions} busy={!!pending} />
+              </section>
               <section className="col-chat" aria-label="Conversation with Nikki">
                 <Chat
                   state={state}
@@ -296,9 +299,6 @@ export default function App() {
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
                 />
-              </section>
-              <section className="col-plan" aria-label="Today's plan">
-                <Today state={state} actions={actions} busy={!!pending} />
               </section>
             </div>
           ))}

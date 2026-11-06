@@ -599,7 +599,7 @@ input[type="time"] {
 /* ---------- today layout ---------- */
 .today-layout {
   display: grid;
-  grid-template-columns: minmax(340px, 440px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 440px);
   gap: 20px;
   align-items: start;
 }

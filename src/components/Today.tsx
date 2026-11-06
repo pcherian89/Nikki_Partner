@@ -281,14 +281,18 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
           <CarryLine state={state} actions={actions} onToggle={complete}>
             {state.newDay && <NewDayReview state={state} actions={actions} />}
           </CarryLine>
-          {!plan && state.days[0]?.openIds.length > 0 && !state.proposal?.plan && (
-            <div className="row gap wrap plan-offer">
-              <button className="btn" onClick={() => actions.focusComposer("Plan my day. ")}>
-                Plan my day
-              </button>
-              <span className="muted small">Optional. You can start any task without a plan.</span>
-            </div>
-          )}
+          <DayActions
+            state={state}
+            actions={actions}
+            date={state.today}
+            offer={
+              !plan && state.days[0]?.openIds.length > 0 && !state.proposal?.plan ? (
+                <button className="btn" onClick={() => actions.focusComposer("Plan my day. ")}>
+                  Plan my day
+                </button>
+              ) : null
+            }
+          />
         </>
       ) : (
         <>
@@ -315,6 +319,24 @@ function TodayBody({ state, actions, busy }: { state: AppState; actions: AppActi
       <Meetings state={state} actions={actions} date={state.today} meetings={state.meetings} label="today" />
       <Completed state={state} plan={plan} onToggle={complete} actions={actions} />
     </>
+  );
+}
+
+/** The row under a day's task list: optional planning, and adding a reminder. */
+function DayActions({ state, actions, date, offer }: { state: AppState; actions: AppActions; date: string; offer: React.ReactNode }) {
+  const [adding, setAdding] = useState(false);
+  const isToday = date === state.today;
+  // Today: the next full hour; another day: 9:00 AM.
+  const nextHour = `${String(Math.min(23, Math.floor(toMin(state.now) / 60) + 1)).padStart(2, "0")}:00`;
+  return (
+    <div className="row gap wrap plan-offer">
+      {offer}
+      <button className="btn" onClick={() => setAdding(true)}>
+        🔔 Reminder
+      </button>
+      {offer ? <span className="muted small">Both optional. You can start any task without a plan.</span> : null}
+      {adding && <ReminderSheet state={state} actions={actions} defaultDate={date} defaultTime={isToday ? nextHour : "09:00"} onClose={() => setAdding(false)} />}
+    </div>
   );
 }
 
@@ -356,14 +378,18 @@ function TomorrowBody({ state, actions, busy }: { state: AppState; actions: AppA
           <DayBar plan={t.plan} />
         </details>
       )}
-      {!t.plan && !proposal && state.days[1]?.openIds.length > 0 && (
-        <div className="row gap wrap plan-offer">
-          <button className="btn" onClick={() => actions.focusComposer("Let's plan tomorrow. ")}>
-            Arrange tomorrow
-          </button>
-          <span className="muted small">Optional. Tasks stay on tomorrow either way.</span>
-        </div>
-      )}
+      <DayActions
+        state={state}
+        actions={actions}
+        date={t.date}
+        offer={
+          !t.plan && !proposal && state.days[1]?.openIds.length > 0 ? (
+            <button className="btn" onClick={() => actions.focusComposer("Let's plan tomorrow. ")}>
+              Arrange tomorrow
+            </button>
+          ) : null
+        }
+      />
       {timers.sheets}
       <Meetings state={state} actions={actions} date={t.date} meetings={t.meetings} label="tomorrow" />
     </>
