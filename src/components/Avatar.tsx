@@ -6,7 +6,7 @@ import { useState } from "react";
  * If the image can't load, a styled monogram is shown instead — never a broken image.
  */
 export const AVATAR_SRC = "/nikki/nikki-avatar.png?v=2";
-export const FIGURE_SRC = "/nikki/nikki-full.webp?v=2";
+export const FIGURE_SRC = "/nikki/nikki-cutout.webp?v=3";
 
 export function Avatar({ size = 40, className = "", glow = false }: { size?: number; className?: string; glow?: boolean }) {
   const [failed, setFailed] = useState(false);
@@ -24,7 +24,7 @@ export function Avatar({ size = 40, className = "", glow = false }: { size?: num
 }
 
 /**
- * Full-body Nikki for the welcome screen (/public/nikki/nikki-full.webp, a tall
+ * Full-body Nikki for the welcome screen (/public/nikki/nikki-cutout.webp, a transparent cut-out of a tall
  * 9:16 image). Gentle CSS "breathing" motion; falls back to the round portrait.
  */
 export function NikkiFigure() {

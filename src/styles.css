@@ -3935,3 +3935,13 @@ body {
 .proposal-link.plan-ready {
   cursor: default;
 }
+
+/* The full-body photo is a true cut-out now (no backdrop), so it needs no fade mask and sits on any theme. */
+.nikki-figure img {
+  -webkit-mask-image: none;
+  mask-image: none;
+  filter: drop-shadow(0 14px 22px rgba(0, 0, 0, 0.35));
+}
+:root[data-theme="light"] .nikki-figure img {
+  filter: drop-shadow(0 14px 18px rgba(40, 70, 20, 0.22));
+}
