@@ -6,6 +6,7 @@ import "../agents/engine.js"; // registers the agent job handler
 import { logActivity } from "./activity.js";
 import { recoverActions, runScheduledActions } from "./actions.js";
 import { makeBackup, pruneBackups } from "./backup.js";
+import { meteringSince } from "./budget.js";
 import { recoverJobs, registerJobHandler, upsertJob } from "./jobs.js";
 import { pruneNotifications, sendQuietDigest } from "./notifications.js";
 import { seedSpaces } from "./spaces.js";
@@ -37,4 +38,5 @@ export async function bootstrapSystem(db: DB) {
   await recoverActions(db);
   seedSystemJobs(db);
   ensureExampleAgent(db);
+  meteringSince(db); // records when Nikki's own AI measurement began (no history is back-filled)
 }

@@ -162,3 +162,19 @@ test("requests from another site are refused; security headers are set", async (
   assert.equal(same.headers.get("x-content-type-options"), "nosniff");
   assert.equal(same.headers.get("cache-control"), "no-store");
 });
+
+test("sign-in alerts: none for a browser already seen, one per new device per day, kept as a security notice", async () => {
+  resetAuthLimits();
+  const alerts = () => (getDb("personal").prepare("SELECT COUNT(*) AS n FROM notifications WHERE title = 'Sign-in from a new device'").get() as { n: number }).n;
+  const start = alerts();
+  await login(); // same iPhone browser as the earlier tests
+  await login();
+  assert.equal(alerts(), start, "a known browser signing in again is ordinary use");
+  const mac = { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_1) AppleWebKit Safari/605.1" };
+  await call("POST", "/api/auth/login", { password: "correct horse battery" }, undefined, mac);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(alerts(), start + 1, "a new device makes one alert");
+  const row = getDb("personal").prepare("SELECT category, priority FROM notifications WHERE title = 'Sign-in from a new device' ORDER BY created_at DESC LIMIT 1").get() as any;
+  assert.equal(row.category, "security");
+  assert.equal(row.priority, "high");
+});

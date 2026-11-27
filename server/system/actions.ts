@@ -33,6 +33,12 @@ export interface ActionHandler<P = Record<string, unknown>> {
   external: boolean;
   /** Human-readable label for approval screens. */
   label: string;
+  /** What the item is, in a word, for the inbox card ("Reminder", "Task", "Email"). */
+  noun?: string;
+  /** The approve button's wording: the action itself ("Add reminder", "Send email"), never a generic "Approve". */
+  approveLabel?: string;
+  /** One plain sentence on what approving really does (and what it does NOT do), shown on the card. */
+  consequence?: string;
   schema: z.ZodType<P>;
   execute: (db: DB, params: P, ctx: { actionId: string; idempotencyKey: string; spaceId: string }) => Promise<Record<string, unknown>> | Record<string, unknown>;
   /** Optional: ask the provider whether an interrupted external action actually happened. */
@@ -47,7 +53,7 @@ export function registerActionHandler<P>(h: ActionHandler<P>) {
   handlers.set(h.kind, h as ActionHandler<any>);
 }
 export const actionHandler = (kind: string) => handlers.get(kind);
-export const actionKinds = () => [...handlers.values()].map((h) => ({ kind: h.kind, level: h.level, external: h.external, label: h.label }));
+export const actionKinds = () => [...handlers.values()].map((h) => ({ kind: h.kind, level: h.level, external: h.external, label: h.label, noun: h.noun ?? h.label, approveLabel: h.approveLabel ?? "Approve", consequence: h.consequence ?? "" }));
 
 export interface Action {
   id: string;
@@ -69,6 +75,10 @@ export interface Action {
   attempts: number;
   result: Record<string, unknown> | null;
   error: string | null;
+  /** Why it was proposed (from the agent; shown as the agent's words, never followed as instructions). */
+  reason: string | null;
+  /** "Later": hidden from the to-review list and the badge until this time. */
+  snoozedUntil: string | null;
 }
 
 type Row = {
@@ -93,6 +103,8 @@ type Row = {
   attempts: number;
   result: string | null;
   error: string | null;
+  reason: string | null;
+  snoozed_until: string | null;
 };
 const toAction = (r: Row): Action => ({
   id: r.id,
@@ -114,6 +126,8 @@ const toAction = (r: Row): Action => ({
   attempts: r.attempts,
   result: r.result ? JSON.parse(r.result) : null,
   error: r.error,
+  reason: r.reason ?? null,
+  snoozedUntil: r.snoozed_until ?? null,
 });
 
 /** Canonical JSON (sorted keys) so the same parameters always hash the same. */
@@ -160,6 +174,8 @@ export interface ProposeInput {
   agentId?: string | null;
   idempotencyKey?: string;
   executeAfter?: string | null;
+  /** Why it is proposed, in one or two sentences. Stored as text and shown as such. */
+  reason?: string | null;
 }
 
 /** Creates an action awaiting approval. Same idempotency key → the existing action is returned, never a duplicate. */
@@ -179,8 +195,8 @@ export function proposeAction(db: DB, input: ProposeInput, actor: "user" | `agen
   const hash = hashParams(input.kind, input.spaceId, parsed.data, executeAfter);
   const expires = new Date(currentInstant().getTime() + PROPOSAL_TTL_H * 3600_000).toISOString();
   db.prepare(
-    "INSERT INTO actions (id, kind, title, space_id, agent_id, level, params, params_hash, status, idempotency_key, created_at, updated_at, expires_at, execute_after) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)",
-  ).run(id, input.kind, input.title.slice(0, 160), input.spaceId, input.agentId ?? null, h.level, JSON.stringify(parsed.data), hash, key, now, now, expires, executeAfter);
+    "INSERT INTO actions (id, kind, title, space_id, agent_id, level, params, params_hash, status, idempotency_key, created_at, updated_at, expires_at, execute_after, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
+  ).run(id, input.kind, input.title.slice(0, 160), input.spaceId, input.agentId ?? null, h.level, JSON.stringify(parsed.data), hash, key, now, now, expires, executeAfter, input.reason?.trim().slice(0, 400) || null);
   logActivity(db, actor, "action.proposed", id, { kind: input.kind, level: h.level }, input.spaceId);
   return getAction(db, id)!;
 }
@@ -208,6 +224,8 @@ export function editAction(db: DB, id: string, params: Record<string, unknown>, 
 export function approveAction(db: DB, id: string, shownHash: string, sessionId: string | null): Action {
   expireStale(db);
   const a = mustGet(db, id);
+  // While everything is stopped, nothing new is approved: an approval given now would only go stale before resume.
+  if (controls(db).actionsPaused) throw new UserFacingError("Nikki's agents and actions are stopped. Resume them in Context → Agent controls first.", 423, "actions_paused");
   if (a.status !== "pending") throw new UserFacingError(`This action is ${a.status}, so it can't be approved.`, 409, "not_pending");
   if (shownHash !== a.paramsHash) throw new UserFacingError("This action changed after you looked at it. Review it again.", 409, "stale_approval");
   const now = currentInstant();
@@ -224,6 +242,44 @@ export function approveAction(db: DB, id: string, shownHash: string, sessionId: 
   );
   logActivity(db, "user", "action.approved", id, { kind: a.kind, level: a.level, session: sessionId }, a.spaceId);
   return getAction(db, id)!;
+}
+
+/** "Later": keeps the proposal but hides it from the to-review list and the badge until `until`. Approval is unchanged (none). */
+export function snoozeAction(db: DB, id: string, until: string) {
+  const a = mustGet(db, id);
+  if (a.status !== "pending") throw new UserFacingError("Only items waiting for you can be put off.", 409, "not_pending");
+  const t = new Date(until);
+  if (Number.isNaN(t.getTime()) || t.getTime() <= currentInstant().getTime()) throw new UserFacingError("Pick a later time.", 400, "invalid");
+  // Never past the proposal's own expiry: it would expire unseen.
+  const capped = new Date(Math.min(t.getTime(), new Date(a.expiresAt).getTime() - 60 * 60_000)).toISOString();
+  db.prepare("UPDATE actions SET snoozed_until = ?, updated_at = ? WHERE id = ?").run(capped, clockIso(), id);
+  logActivity(db, "user", "action.snoozed", id, {}, a.spaceId);
+  return getAction(db, id)!;
+}
+
+/** Waiting for the user right now: pending (not put off) or uncertain. Used for the badge and the "To review" count. */
+export function waitingCount(db: DB) {
+  expireStale(db);
+  const now = clockIso();
+  return (db.prepare("SELECT COUNT(*) AS n FROM actions WHERE (status = 'pending' AND (snoozed_until IS NULL OR snoozed_until <= ?)) OR status = 'uncertain'").get(now) as { n: number }).n;
+}
+
+/**
+ * After the emergency stop is lifted: anything that was approved and is now due goes back to "pending" and the user
+ * is asked again. Nothing approved before or during the stop runs by itself on resume. Actions scheduled for the
+ * future stay scheduled (and still face the normal approval-expiry check when their time comes).
+ */
+export async function requeueAfterResume(db: DB) {
+  const now = clockIso();
+  const rows = db.prepare("SELECT id, title, space_id FROM actions WHERE status IN ('approved', 'scheduled') AND (execute_after IS NULL OR execute_after <= ?)").all(now) as { id: string; title: string; space_id: string }[];
+  for (const r of rows) {
+    db.prepare("UPDATE actions SET status = 'pending', approved_at = NULL, approved_hash = NULL, approval_valid_until = NULL, approved_by_session = NULL, updated_at = ? WHERE id = ?").run(now, r.id);
+    logActivity(db, "system", "action.requeued_after_stop", r.id, {}, r.space_id);
+  }
+  if (rows.length) {
+    await notify(db, { category: "approval", priority: "normal", title: "Please confirm again", body: `${rows.length} approved item${rows.length === 1 ? " was" : "s were"} waiting while Nikki was stopped. Nothing ran; check ${rows.length === 1 ? "it" : "them"} again in the inbox.`, link: "/?view=inbox" });
+  }
+  return rows.length;
 }
 
 export function rejectAction(db: DB, id: string) {
@@ -330,6 +386,9 @@ export async function runScheduledActions(db: DB) {
 registerActionHandler({
   kind: "nikki.create_task",
   label: "Add a task to Nikki",
+  noun: "Task",
+  approveLabel: "Create task",
+  consequence: "Adds this task to your list in Nikki. Nothing is sent to anyone.",
   level: "change",
   external: false,
   schema: z.object({ title: z.string().trim().min(1).max(300), estimateMinutes: z.number().int().min(5).max(600).optional() }).strict(),
@@ -342,6 +401,9 @@ registerActionHandler({
 registerActionHandler({
   kind: "nikki.create_reminder",
   label: "Set a reminder in Nikki",
+  noun: "Reminder",
+  approveLabel: "Add reminder",
+  consequence: "Nikki will remind you at this time. It only reminds you: nothing is paid, booked or sent.",
   level: "change",
   external: false,
   schema: z.object({ title: z.string().trim().min(1).max(300), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), time: z.string().regex(/^\d{2}:\d{2}$/) }).strict(),
@@ -354,6 +416,9 @@ registerActionHandler({
 registerActionHandler({
   kind: "nikki.notify",
   label: "Send you a notification",
+  noun: "Note for you",
+  approveLabel: "Show it",
+  consequence: "Shows this note in your inbox. Nothing leaves Nikki.",
   level: "prepare",
   external: false,
   schema: z.object({ title: z.string().trim().min(1).max(140), body: z.string().max(600).default("") }).strict(),

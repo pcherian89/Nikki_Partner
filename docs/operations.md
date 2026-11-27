@@ -44,8 +44,10 @@ Context → Security and devices → **Turn on two-step sign-in**. On iPhone, ta
 
 ### Step 6. Check notifications on your iPhone
 
-Context → **Send a test through the inbox**. Only mark notifications as working after the test reaches your lock
-screen. Nikki itself only counts a device as verified when the device confirms it showed the test.
+On your iPhone, open Nikki from the Home Screen → **Context → Reminders & notifications → Turn on notifications**,
+then **Send a test**. Only treat notifications as working after the test reaches your lock screen. Nikki only counts a
+device as verified when the device confirms it showed the test. The test goes to the device only and never appears in
+your inbox.
 
 ## 2. Backups
 
@@ -95,8 +97,10 @@ You will also need to sign in again (older versions use the old cookie).
 
 ## 4. Emergency switches
 
-- **Context → Safety switch → Stop all agents and actions**: everything automatic stops at once; planning and chat
-  still work. Resume each part separately.
+- **Context → Agent controls → Stop all agents and actions**: everything automatic stops at once, including an agent
+  that is part-way through; planning, tasks, reminders and chat still work. **Resume** turns it back on. Anything you
+  approved that became due while stopped is not run: it comes back to Inbox → To review for you to confirm again.
+  Something already done outside Nikki can't be undone by this switch.
 - **Signed-in devices → Sign out everywhere else**: if a device is lost.
 - Lost every two-step device and recovery code: Railway Variables → `NIKKI_DISABLE_2FA=1`, sign in with your
   password, turn two-step sign-in off, then delete the variable.
@@ -109,3 +113,42 @@ You will also need to sign in again (older versions use the old cookie).
 2. Railway Variables: set `NIKKI_ENCRYPTION_KEY_PREVIOUS` = the old key, `NIKKI_ENCRYPTION_KEY` = the new key.
 3. After the redeploy, Nikki re-encrypts stored secrets with the new key on start.
 4. Keep the old key while you still have backups made with it (14 days), then delete `NIKKI_ENCRYPTION_KEY_PREVIOUS`.
+
+## 6. Deploying Phase 0 to production (only after your approval)
+
+### How to see which branch Railway deploys
+
+Railway → your Nikki project → the Nikki service → **Settings** → **Source**. It shows the GitHub repository and the
+**branch** it deploys (and whether automatic deploys are on). The **Deployments** tab also shows the branch and commit
+for each deployment. Phase 0's pull request targets `claude/loving-ptolemy-xty07b`; if Source shows a different
+branch, tell Claude before anything is merged.
+
+### Checklist
+
+1. **Production branch.** Confirm it in Settings → Source (above).
+2. **Database and volume.** Settings → Variables: `DATABASE_PATH` should point into the volume (normally
+   `/data/nikki.db`). The service's **Volume** tab should show a volume mounted at `/data`.
+3. **Backup and rollback ready.** Volume → Backups → **Back up now**, and note the current deployment in Deployments
+   (that is the one to redeploy if needed).
+4. **Encryption key.** Create it on your Mac and add `NIKKI_ENCRYPTION_KEY` (section 1, Steps 1 and 2). Save a copy
+   in Apple Passwords.
+5. **Secrets present.** Variables should list `APP_PASSWORD`, `ANTHROPIC_API_KEY` and `NIKKI_ENCRYPTION_KEY`. Check
+   the names only; never paste the values anywhere.
+6. **Migration safety.** Phase 0 only adds tables and columns. Nikki copies the database to
+   `/data/nikki.db.v6-before-v7-….bak` before upgrading.
+7. **Merge only after your approval.** You approve; then the pull request is marked ready and merged into the
+   production branch. Railway deploys automatically.
+8. **Health check.** Open `https://<your Nikki address>/api/health`. It should say `"ok":true`. Deployments should show
+   the new deployment as Active with no crash logs.
+9. **Your data.** Sign in, then check Today, Everything, your tasks, reminders and calendar feeds are as before.
+   Context → AI usage should show $0.00 "Measured by Nikki since <today>", and Inbox should be empty.
+10. **Sign-in and sessions.** Sign in on iPhone, iPad and Mac. Context → Security and devices → Signed-in devices should
+    list each. Optionally turn on two-step sign-in.
+11. **iPhone test.** Section 1, Step 6. Tell Claude whether the test reached your lock screen.
+
+### If something goes wrong
+
+1. Deployments → the previous good deployment → **⋯ → Redeploy** (section 3). The database keeps working with the
+   older code.
+2. If data looks wrong, restore from the pre-upgrade copy or a Railway volume backup (section 3, Rolling back data).
+3. Context → Agent controls → **Stop** at any time; it does not affect planning or your data.

@@ -77,10 +77,16 @@ registerTool({
       .map((t) => ({ title: t.title, deadline: t.deadline, priority: t.priority })),
 });
 
-function proposeVia(kind: string, title: (p: any) => string) {
-  return (ctx: ToolContext, p: Record<string, unknown>) => {
+/** `reason` is kept apart from the action's parameters: it is shown to the user but is not part of what gets approved. */
+function proposeVia(kind: string) {
+  return (ctx: ToolContext, input: Record<string, unknown>) => {
     if (!actionHandler(kind)) throw new UserFacingError("Unknown action.");
-    const a = proposeAction(ctx.db, { kind, title: title(p), spaceId: ctx.config.spaceId, params: p, agentId: ctx.agentId, idempotencyKey: `${ctx.runId}:${kind}:${JSON.stringify(p)}` }, `agent:${ctx.agentId}`);
+    const { reason, ...p } = input;
+    const a = proposeAction(
+      ctx.db,
+      { kind, title: String(p.title ?? ""), spaceId: ctx.config.spaceId, params: p, agentId: ctx.agentId, reason: typeof reason === "string" ? reason : null, idempotencyKey: `${ctx.runId}:${kind}:${JSON.stringify(p)}` },
+      `agent:${ctx.agentId}`,
+    );
     return { proposed: true, status: a.status, note: "Waiting for the user's approval in Nikki. Nothing has been done yet." };
   };
 }
@@ -88,21 +94,21 @@ function proposeVia(kind: string, title: (p: any) => string) {
 registerTool({
   name: "nikki_propose_task",
   level: "change",
-  description: "Propose adding a task to Nikki. The user must approve it; nothing is created until then.",
-  input: z.object({ title: z.string().min(1).max(300) }).strict(),
-  jsonSchema: obj({ title: { type: "string" } }),
+  description: "Propose adding a task to Nikki. The user must approve it; nothing is created until then. Give a one-sentence reason the user will see.",
+  input: z.object({ title: z.string().min(1).max(300), reason: z.string().max(300).optional() }).strict(),
+  jsonSchema: obj({ title: { type: "string" }, reason: { type: "string" } }),
   spaces: ["personal"],
-  run: proposeVia("nikki.create_task", (p) => `Add task: ${p.title}`),
+  run: proposeVia("nikki.create_task"),
 });
 
 registerTool({
   name: "nikki_propose_reminder",
   level: "change",
-  description: "Propose a reminder (date YYYY-MM-DD, time HH:MM, user's time zone). The user must approve it.",
-  input: z.object({ title: z.string().min(1).max(300), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), time: z.string().regex(/^\d{2}:\d{2}$/) }).strict(),
-  jsonSchema: obj({ title: { type: "string" }, date: { type: "string" }, time: { type: "string" } }),
+  description: "Propose a reminder (date YYYY-MM-DD, time HH:MM, user's time zone). The user must approve it. Give a one-sentence reason the user will see.",
+  input: z.object({ title: z.string().min(1).max(300), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), time: z.string().regex(/^\d{2}:\d{2}$/), reason: z.string().max(300).optional() }).strict(),
+  jsonSchema: obj({ title: { type: "string" }, date: { type: "string" }, time: { type: "string" }, reason: { type: "string" } }),
   spaces: ["personal"],
-  run: proposeVia("nikki.create_reminder", (p) => `Reminder ${p.date} ${p.time}: ${p.title}`),
+  run: proposeVia("nikki.create_reminder"),
 });
 
 registerTool({

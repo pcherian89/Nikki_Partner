@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { currentInstant, isValidTimeZone, localDateOf } from "./time.js";
 import { assessTimer } from "./timerRules.js";
-import { SYSTEM_SCHEMA, SYSTEM_WIPE_TABLES } from "./system/schema.js";
+import { ensureSystemColumns, SYSTEM_SCHEMA, SYSTEM_WIPE_TABLES } from "./system/schema.js";
 import type {
   TaskDraft,
   TaskStep,
@@ -274,6 +274,7 @@ export function getDb(ws: Workspace): DB {
   if (version < SCHEMA_VERSION) snapshotBeforeMigration(db, file, version);
   db.exec(SCHEMA);
   db.exec(SYSTEM_SCHEMA);
+  ensureSystemColumns(db);
   migrate(db);
   if (version < SCHEMA_VERSION) db.pragma(`user_version = ${SCHEMA_VERSION}`);
   dbs.set(ws, db);

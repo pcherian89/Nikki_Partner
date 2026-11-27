@@ -60,6 +60,37 @@ flowchart TB
 6. **Secrets are sealed.** AES-256-GCM, key only in the server environment, bound to their storage row, rotatable.
 7. **Nikki is the only interface.** Approvals and notifications live in the in-app inbox; push is a copy.
 
+## Three kinds of confirmation (pre-deployment review, 28 Nov 2026)
+
+| What | Example | How it is confirmed |
+| --- | --- | --- |
+| Something you asked for in chat | "Add a task to call Ravi" | The existing Confirm / Undo in chat. Never sent to the inbox, never approved twice |
+| An agent's suggestion inside Nikki | Daily Briefing suggests a reminder | Inbox → To review. The button names the action (Create task, Add reminder); the card says why and what happens |
+| An action that leaves Nikki or can't be undone (Phase 1+) | Send an email, add a calendar event | Inbox, plus a password re-check; approval lasts 1 hour; an unknown outcome becomes "uncertain" |
+
+Only the agent tool gateway calls `proposeAction` (a test checks this). Each action kind declares `noun`,
+`approveLabel` and `consequence`, so new kinds bring their own wording without changing the approval check.
+
+## Stop and resume
+
+- **Stop** (`stopEverything`) sets `agentsPaused` and `actionsPaused` in settings, so it survives restarts.
+- No agent run starts; a running agent checks before every model call and every tool call and ends as
+  `stopped_paused`. A model request already sent can't be recalled: it finishes and is counted.
+- No action executes and none can be approved (HTTP 423). Scheduled items wait.
+- Nothing already done outside Nikki can be reversed by the switch.
+- **Resume** (`/api/system/resume-all`) clears both flags, then `requeueAfterResume` returns every approved or
+  scheduled item that is now due to `pending` with its approval cleared, and sends one "Please confirm again" note.
+  Future scheduled items keep their time and face the usual approval-expiry check when it comes.
+- Planning, chat, tasks, reminders and data are never affected.
+
+## Budget scope
+
+- `monthlyUsd` ($5) covers all AI Nikki calls: planning chat, task helpers and agents.
+- `dailyUsd` ($0.25) applies to background agents only.
+- Agents reserve a worst-case estimate before each call and stop before exceeding either limit.
+- Planning chat keeps working at the limit unless `blockPlannerAtLimit` is chosen. From 90% a banner shows above the chat.
+- `ai_metering_since` records when counting began; nothing earlier is imported.
+
 ## Modules
 
 | Path | Purpose |

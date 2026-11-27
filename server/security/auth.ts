@@ -278,11 +278,17 @@ authRouter.post("/api/auth/login", (req, res, next) => {
     }
     perIp.delete(ip);
     const label = String(req.body?.deviceLabel ?? "").trim() || deviceLabel(req.header("user-agent"));
-    const known = listSessions(db).length > 0;
-    const s = createSession(db, label, req.header("user-agent"), twoFactor);
+    const ua = (req.header("user-agent") ?? "").slice(0, 300);
+    // Alert only for a device Nikki hasn't seen: the very first sign-in is you setting Nikki up, and signing in again on
+    // the same browser (after signing out or a session expiring) is ordinary use. A browser seen in the last 90 days
+    // counts as known. Repeated sign-ins from one new device on one day make one alert, not many.
+    const anyBefore = (db.prepare("SELECT COUNT(*) AS n FROM auth_sessions").get() as { n: number }).n > 0;
+    const seen = !!db.prepare("SELECT 1 FROM auth_sessions WHERE user_agent = ? AND created_at >= ? LIMIT 1").get(ua, new Date(nowMs() - 90 * 86_400_000).toISOString());
+    const s = createSession(db, label, ua, twoFactor);
     logActivity(db, "user", "auth.login", s.id, { device: label, session: s.id });
-    if (known) {
-      void notify(db, { category: "security", priority: "high", title: "New sign-in", body: `Nikki was opened on a new device: ${label}. If this wasn't you, sign it out in Context → Security.`, link: "/?view=context#security" }).catch(() => {});
+    if (anyBefore && !seen) {
+      const day = new Date(nowMs()).toISOString().slice(0, 10);
+      void notify(db, { category: "security", priority: "high", title: "Sign-in from a new device", body: `${label} signed in to Nikki. If this wasn't you, sign it out in Context → Security and devices.`, link: "/?view=context#security", dedupeKey: `signin:${createHash("sha256").update(ua).digest("hex").slice(0, 16)}:${day}` }).catch(() => {});
     }
     res.setHeader("Set-Cookie", cookie(req, s.token, SLIDE_MS / 1000));
     res.json({ ok: true });

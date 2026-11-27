@@ -18,7 +18,13 @@ import { notify, notifyTz } from "./notifications.js";
  * - Nothing here buys credit or enables auto top-up.
  */
 
-/** US dollars per million tokens. Source: Anthropic pricing (checked 27 Nov 2026). Cache writes use the 5-minute rate (1.25× input). */
+/**
+ * US dollars per million tokens, Anthropic first-party API rates (re-checked 28 Nov 2026): Opus 5.5 $4/$20 with cache
+ * reads $0.20; Sonnet 5.5 $2/$10 with cache reads $0.10; Haiku 5.5 $0.10/$0.50 for prompts up to 100K tokens and
+ * $0.50/$2.50 beyond. Cache writes use the 5-minute rate (1.25× input). Haiku 5.5's cache-read rate isn't published in
+ * the reference used, so it assumes the usual 0.1× input. The API's `input_tokens` counts only uncached input; cached
+ * reads and cache writes arrive as separate counts and are priced separately here.
+ */
 export const PRICES: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
   "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
   "claude-opus-5": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
@@ -42,8 +48,12 @@ export interface Usage {
   cacheWriteTokens?: number;
 }
 
+/** Haiku 5.5 charges a higher rate for the whole call when the prompt is over 100K tokens. */
+const HAIKU_LONG = { input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 };
+
 export function costOf(model: string, u: Usage) {
-  const p = priceFor(model);
+  const promptTokens = u.inputTokens + (u.cacheReadTokens ?? 0) + (u.cacheWriteTokens ?? 0);
+  const p = model.replace(/-\d{8}$/, "") === "claude-haiku-5-5" && promptTokens > 100_000 ? HAIKU_LONG : priceFor(model);
   return (u.inputTokens * p.input + u.outputTokens * p.output + (u.cacheReadTokens ?? 0) * p.cacheRead + (u.cacheWriteTokens ?? 0) * p.cacheWrite) / 1_000_000;
 }
 
@@ -56,7 +66,22 @@ export interface BudgetSettings {
   blockPlannerAtLimit: boolean;
 }
 
-export const DEFAULT_BUDGET: BudgetSettings = { monthlyUsd: 5, dailyUsd: 1, perAgentMonthlyUsd: {}, blockPlannerAtLimit: false };
+/**
+ * $5 a month for everything (owner's choice). The daily limit applies to background agents only: $0.25 a day lets a
+ * normal day of agent work through (a Sonnet briefing is about $0.05, sorting 40 emails on Haiku about $0.01) while a
+ * runaway agent can use at most 5% of the month in one day.
+ */
+export const DEFAULT_BUDGET: BudgetSettings = { monthlyUsd: 5, dailyUsd: 0.25, perAgentMonthlyUsd: {}, blockPlannerAtLimit: false };
+
+/** The moment Nikki started counting its own AI use. Spend before it exists only in the Claude Console. */
+export function meteringSince(db: DB): string {
+  let v = getSetting(db, "ai_metering_since");
+  if (!v) {
+    v = clockIso();
+    setSetting(db, "ai_metering_since", v);
+  }
+  return v;
+}
 export const THRESHOLDS = [50, 75, 90, 100] as const;
 
 export function getBudget(db: DB): BudgetSettings {
@@ -96,6 +121,15 @@ export interface Spend {
   byWorkflow: { workflow: string; usd: number; calls: number }[];
   byModel: { model: string; usd: number; inputTokens: number; outputTokens: number }[];
   state: "ok" | "warning" | "limit";
+  /** Money left this month under the configured budget (never below 0). */
+  remainingUsd: number;
+  /** Calls whose cost could not be measured (no token counts came back); counted as $0. */
+  unmeasuredCalls: number;
+  /** When Nikki started measuring. */
+  since: string;
+  /** True when the user chose to pause planning at the limit and the limit is reached. */
+  plannerBlocked: boolean;
+  blockPlannerAtLimit: boolean;
   aiPaused: boolean;
   aiPausedReason: string | null;
 }
@@ -123,6 +157,11 @@ export function spend(db: DB): Spend {
       db.prepare("SELECT model, SUM(cost_usd) AS usd, SUM(input_tokens + cache_read_tokens + cache_write_tokens) AS inputTokens, SUM(output_tokens) AS outputTokens FROM ai_usage WHERE month = ? GROUP BY model ORDER BY usd DESC").all(month) as Spend["byModel"]
     ),
     state: percent >= 100 ? "limit" : percent >= 75 ? "warning" : "ok",
+    remainingUsd: Math.max(0, b.monthlyUsd - monthUsd),
+    unmeasuredCalls: sum(db, "SELECT COUNT(*) AS v FROM ai_usage WHERE month = ? AND estimated = 1", month),
+    since: meteringSince(db),
+    plannerBlocked: b.blockPlannerAtLimit && monthUsd >= b.monthlyUsd,
+    blockPlannerAtLimit: b.blockPlannerAtLimit,
     aiPaused: c.aiPaused,
     aiPausedReason: c.aiPausedReason,
   };

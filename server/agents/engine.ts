@@ -101,6 +101,9 @@ export async function runAgent(db: DB, agentId: string, trigger: "schedule" | "m
       ];
       let finalText = "";
       for (let turn = 0; turn < a.config.maxTurns; turn++) {
+        // The emergency stop is checked before every model call and every tool call, not only at the start of a run.
+        // A request already sent to the model can't be recalled; it finishes, is counted, and nothing after it runs.
+        if (controls(db).agentsPaused) return finish({ status: "stopped_paused", summary: "Stopped by the emergency stop.", toolCalls, costUsd });
         // Reserve the worst case for this turn before calling: about 30k input tokens plus the output cap.
         const p = priceFor(modelId);
         const estimate = (30_000 * p.input + a.config.maxTokens * p.output) / 1_000_000;
@@ -128,6 +131,7 @@ export async function runAgent(db: DB, agentId: string, trigger: "schedule" | "m
         if (r.stopReason !== "tool_use" || !uses.length) break;
         const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
         for (const u of uses) {
+          if (controls(db).agentsPaused) return finish({ status: "stopped_paused", summary: "Stopped by the emergency stop.", toolCalls, costUsd });
           if (toolCalls >= a.config.maxToolCalls) {
             results.push({ type: "tool_result", tool_use_id: u.id, is_error: true, content: "Tool call limit reached for this run. Stop and summarise." });
             continue;

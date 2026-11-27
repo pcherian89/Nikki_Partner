@@ -4,7 +4,6 @@ import { z } from "zod";
 import { config } from "../config.js";
 import { getDb } from "../db.js";
 import { UserFacingError } from "../errors.js";
-import { sendTest } from "../push.js";
 import {
   disableTotp,
   finishTotpSetup,
@@ -24,12 +23,12 @@ import { createAgent, deleteAgent, getAgent, listAgents, setAgentEnabled, update
 import { runAgent } from "../agents/engine.js";
 import { listTools } from "../agents/tools.js";
 import { listActivity, logActivity } from "./activity.js";
-import { approveAction, cancelAction, editAction, executeAction, getAction, listActions, rejectAction, resolveUncertain } from "./actions.js";
+import { actionKinds, approveAction, cancelAction, editAction, executeAction, getAction, listActions, rejectAction, requeueAfterResume, resolveUncertain, snoozeAction, waitingCount, type Action } from "./actions.js";
 import { backupPath, listBackups, makeBackup } from "./backup.js";
 import { getBudget, saveBudget, spend } from "./budget.js";
 import { controls, setControl, stopEverything } from "./controls.js";
 import { listJobs, setJobEnabled } from "./jobs.js";
-import { CATEGORIES, CATEGORY_LABEL, getPrefs, listNotifications, markRead, notify, savePrefs } from "./notifications.js";
+import { CATEGORIES, CATEGORY_LABEL, getPrefs, listNotifications, markRead, savePrefs } from "./notifications.js";
 import { getSpace, listAccounts, listSpaces, setSpaceEnabled } from "./spaces.js";
 
 /**
@@ -48,6 +47,31 @@ function parse<T extends z.ZodTypeAny>(schema: T, body: unknown): z.infer<T> {
 }
 const id = (req: Request) => String(req.params.id);
 
+/** Plain counts for the Agent controls card. */
+function agentStatus(d: ReturnType<typeof db>) {
+  const agents = listAgents(d);
+  const n = (sql: string, ...a: unknown[]) => (d.prepare(sql).get(...a) as { n: number }).n;
+  return {
+    total: agents.length,
+    enabled: agents.filter((a) => a.enabled).length,
+    runningNow: n("SELECT COUNT(*) AS n FROM agent_runs WHERE status = 'running'"),
+    waitingForYou: waitingCount(d),
+    scheduledActions: n("SELECT COUNT(*) AS n FROM actions WHERE status = 'scheduled'"),
+    approvedNotRun: n("SELECT COUNT(*) AS n FROM actions WHERE status = 'approved'"),
+    stoppedSince: d.prepare("SELECT at FROM activity_log WHERE kind = 'control.paused' AND subject = 'agents' ORDER BY seq DESC LIMIT 1").get() as { at: string } | undefined,
+  };
+}
+
+/** Adds what the inbox card needs: the kind's wording and the proposing agent's name. */
+function present(d: ReturnType<typeof db>, list: Action[]) {
+  const kinds = new Map(actionKinds().map((k) => [k.kind, k]));
+  const names = new Map(listAgents(d).map((a) => [a.id, a.name]));
+  return list.map((a) => {
+    const k = kinds.get(a.kind);
+    return { ...a, noun: k?.noun ?? a.kind, approveLabel: k?.approveLabel ?? "Approve", consequence: k?.consequence ?? "", external: !!k?.external, agentName: a.agentId ? names.get(a.agentId) ?? "An agent" : null };
+  });
+}
+
 function overview(req: Request) {
   const d = db();
   const sess = sessionOf(req);
@@ -64,6 +88,7 @@ function overview(req: Request) {
       stepUpFresh: !config.appPassword || (!!sess?.verifiedAt && Date.now() - new Date(sess.verifiedAt).getTime() < 15 * 60_000),
     },
     controls: controls(d),
+    agentStatus: agentStatus(d),
     spaces: listSpaces(d),
     accounts: listAccounts(d),
     budget: { settings: getBudget(d), spend: spend(d) },
@@ -72,13 +97,20 @@ function overview(req: Request) {
     tools: listTools(),
     jobs: listJobs(d),
     actions,
-    pendingActions: actions.filter((a) => a.status === "pending" || a.status === "uncertain").length,
+    pendingActions: waitingCount(d),
     backups: listBackups().slice(0, 5),
   };
 }
 
 systemRouter.get("/api/system/overview", h((req, res) => res.json(overview(req))));
-systemRouter.get("/api/system/badge", h((_req, res) => res.json({ unread: listNotifications(db(), { limit: 1 }).unread, pending: listActions(db(), { status: ["pending", "uncertain"] }).length })));
+systemRouter.get("/api/system/badge", h((_req, res) => {
+  const s = spend(db());
+  res.json({
+    unread: listNotifications(db(), { limit: 1 }).unread,
+    pending: waitingCount(db()),
+    budget: { percent: s.percent, monthUsd: s.monthUsd, monthlyUsd: s.monthlyUsd, state: s.state, plannerBlocked: s.plannerBlocked, blockPlannerAtLimit: s.blockPlannerAtLimit },
+  });
+}));
 
 // ---------- devices ----------
 
@@ -136,20 +168,21 @@ systemRouter.put("/api/system/notifications/prefs", h((req, res) => {
   savePrefs(db(), { ...getPrefs(db()), ...b, push: { ...getPrefs(db()).push, ...b.push } });
   res.json(overview(req));
 }));
-/** A test that goes through the whole notification path (history + push), urgent so quiet hours don't hold it. */
-systemRouter.post("/api/system/notifications/test", h(async (req, res) => {
-  const r = await notify(db(), { category: "system", priority: "urgent", title: "Test from Nikki", body: "If this reached your lock screen, notifications work on this device.", link: "/?view=inbox", kind: "test" });
-  // Re-use the device verification of the existing test (it only counts once the device acknowledges it).
-  if (r.pushed === 0) await sendTest(db()).catch(() => {});
-  res.json({ pushed: r.pushed, item: r.item });
+systemRouter.get("/api/system/notifications/prefs", h((_req, res) => {
+  res.json({ prefs: getPrefs(db()), categories: CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c] })) });
 }));
 
 // ---------- approvals and actions ----------
 
-systemRouter.get("/api/system/actions", h((_req, res) => res.json({ actions: listActions(db(), { limit: 100 }) })));
+systemRouter.get("/api/system/actions", h((_req, res) => res.json({ actions: present(db(), listActions(db(), { limit: 100 })) })));
 systemRouter.patch("/api/system/actions/:id", h((req, res) => {
   const b = parse(z.object({ params: z.record(z.string(), z.unknown()), executeAfter: z.string().nullable().optional() }), req.body);
-  res.json({ action: editAction(db(), id(req), b.params, b.executeAfter) });
+  // An edit produces a new parameter hash and clears any approval (see editAction).
+  res.json({ action: present(db(), [editAction(db(), id(req), b.params, b.executeAfter)])[0] });
+}));
+systemRouter.post("/api/system/actions/:id/snooze", h((req, res) => {
+  const b = parse(z.object({ until: z.string().max(40) }), req.body);
+  res.json({ action: present(db(), [snoozeAction(db(), id(req), b.until)])[0] });
 }));
 systemRouter.post("/api/system/actions/:id/approve", h(async (req, res) => {
   const a = getAction(db(), id(req));
@@ -174,9 +207,17 @@ systemRouter.post("/api/system/actions/:id/resolve", h((req, res) => {
 
 // ---------- emergency controls, budget, spaces ----------
 
-systemRouter.post("/api/system/controls", h((req, res) => {
+systemRouter.post("/api/system/controls", h(async (req, res) => {
   const b = parse(z.object({ control: z.enum(["agents", "actions", "ai"]), paused: z.boolean() }), req.body);
   setControl(db(), b.control, b.paused);
+  if (b.control === "actions" && !b.paused) await requeueAfterResume(db());
+  res.json(overview(req));
+}));
+/** Resume after the emergency stop: agents and actions together. Approved items that became due are asked again. */
+systemRouter.post("/api/system/resume-all", h(async (req, res) => {
+  setControl(db(), "agents", false);
+  setControl(db(), "actions", false);
+  await requeueAfterResume(db());
   res.json(overview(req));
 }));
 systemRouter.post("/api/system/stop-all", h((req, res) => {

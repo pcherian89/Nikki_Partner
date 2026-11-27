@@ -116,7 +116,9 @@ CREATE TABLE IF NOT EXISTS actions (
   execute_after TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
   result TEXT,
-  error TEXT
+  error TEXT,
+  reason TEXT,
+  snoozed_until TEXT
 );
 CREATE INDEX IF NOT EXISTS actions_status ON actions(status, created_at);
 CREATE TABLE IF NOT EXISTS activity_log (
@@ -179,3 +181,15 @@ CREATE INDEX IF NOT EXISTS notifications_created ON notifications(created_at);
 /** Tables cleared by "Delete my data" in addition to the planning tables. Sessions, the activity log, AI spend and
  *  system jobs are kept: they are needed for security and for the budget, and the log records ids only. */
 export const SYSTEM_WIPE_TABLES = ["notifications", "actions", "agent_runs", "job_runs"];
+
+/** Columns added after a table first shipped (additive only). Applied on every start; a no-op once present. */
+const ADDED_COLUMNS: [table: string, column: string, type: string][] = [
+  ["actions", "reason", "TEXT"],
+  ["actions", "snoozed_until", "TEXT"],
+];
+export function ensureSystemColumns(db: { prepare: (sql: string) => { all: () => unknown[]; run: () => unknown } }) {
+  for (const [table, column, type] of ADDED_COLUMNS) {
+    const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+    if (!cols.includes(column)) db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`).run();
+  }
+}

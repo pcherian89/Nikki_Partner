@@ -10,7 +10,7 @@ import { Login } from "./components/Login";
 import { Today } from "./components/Today";
 import { Welcome } from "./components/Welcome";
 import { TaskHelper } from "./components/TaskTools";
-import { Bell, Inbox } from "./components/Safety";
+import { Bell, BudgetNotice, Inbox } from "./components/Safety";
 
 export type View = "home" | "today" | "everything" | "context" | "inbox";
 
@@ -299,6 +299,7 @@ export default function App() {
                 <Today state={state} actions={actions} busy={!!pending} />
               </section>
               <section className="col-chat" aria-label="Conversation with Nikki">
+                <BudgetNotice tick={badgeTick} />
                 <Chat
                   state={state}
                   actions={actions}

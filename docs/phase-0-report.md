@@ -50,7 +50,7 @@ Database: schema v7, **additive only** (new tables, nothing removed or rewritten
 | --- | --- |
 | Measured baseline (last 30 days, Claude Console) | $1.09; 283,313 input and 18,957 output tokens; Opus 5.5 |
 | Credit remaining at review | $0.64 (top-up needed before agents use AI) |
-| Phase 0 budget | $5.00 a month, $1.00 a day for agents (both editable in Context) |
+| Phase 0 budget | $5.00 a month for all of Nikki's AI; $0.25 a day for background agents (both editable in Context → AI usage → Manage budget) |
 | Phase 0 added AI use | None by default: the example agent is code-only and disabled |
 
 Spend shown in Nikki is Nikki's own measurement from token counts and list prices, not Anthropic's invoice. Nikki never
@@ -58,8 +58,7 @@ buys credit or enables auto top-up.
 
 ## QA
 
-- `npm test`: 146 of 146 pass (120 existing, unchanged, plus 26 new for sign-in, vault, approvals, jobs, budget,
-  notifications, spaces, agents and backups).
+- `npm test`: 156 of 156 pass (120 existing, unchanged; 26 Phase 0; 10 added in the pre-deployment review).
 - `npm run typecheck` and `npm run build` pass.
 - Screens checked on phone (390px), tablet (820px) and laptop (1440px) with no layout overflow and no CSP console errors.
 
@@ -73,8 +72,93 @@ buys credit or enables auto top-up.
 - Calendar links are checked before each fetch, but DNS rebinding between check and connect is not fully prevented.
 - Passkeys are deferred; two-step sign-in uses TOTP.
 - Sign-in rate limits are held in memory and reset on redeploy.
-- Failed AI calls are recorded at $0.
+- Failed AI calls are recorded at $0 and counted as "not measured" calls.
+- Haiku 5.5's cache-read price is not published; Nikki assumes 0.1× the input price.
+- "Today" and "this month" follow the time zone Nikki has on record for you (India time by default).
 - The planning export still includes calendar feed links (unchanged from before; treat exports as private).
+
+## Pre-deployment review (28 Nov 2026)
+
+A review of Phase 0 from the owner's side (daily use on phone, tablet and laptop) and from engineering, security, QA
+and operations. Identity, dark theme and green accents are unchanged; nothing was removed.
+
+### Findings and what was done
+
+| # | Finding | Severity | Done |
+| --- | --- | --- | --- |
+| 1 | Every approval button said "Approve exactly this" whatever it did | High (clarity) | Each kind of item names its action: **Create task**, **Add reminder**, **Show it**. Future kinds (Save draft, Send email, Add event) declare their own label. The exact-parameter check behind the button is unchanged |
+| 2 | Inbox cards repeated the title in the detail, gave no reason and no consequence | High | Cards show: what (task, reminder) and which agent suggested it, the item, when (e.g. "Saturday, 28 November · 9:00 AM", India time), **Why**, and **what happens** ("It only reminds you: nothing is paid, booked or sent") |
+| 3 | Approvals, notifications and history were mixed in one list | Medium | Three tabs with counts: **To review**, **Updates** (filter by category, grouped repeats, mark all read), **History** |
+| 4 | Only Approve / Reject | Medium | **Edit** (changes the item; any earlier approval is void and the new version must be confirmed), **Later** (in 3 hours / tomorrow 9 AM; never past expiry), **Dismiss**; approved-and-scheduled items can be cancelled |
+| 5 | Risk of double confirmation | Medium | Verified in code and by a test: requests you make in chat use the existing Confirm/Undo and never reach the inbox. The inbox is for agents' suggestions and (later) anything leaving Nikki |
+| 6 | "Send a test" in the inbox put test items into the real inbox | High | Removed from the server and the screen. The device push test stays under Reminders & notifications and writes nothing to the inbox |
+| 7 | A sign-in alert on every sign-in | Medium | Alerts only for a browser not seen in 90 days, at most one per device per day; the first-ever sign-in makes none. Kept as a high-priority security item |
+| 8 | $2.95 "spent" on the AI Usage screen | High (trust) | Explained below: sample data in the screenshot copy only |
+| 9 | AI usage screen was technical | Medium | Overview first (Today, This month, Left this month, a bar, status); breakdown under **Where it went**; settings under **Manage budget**. States the date measurement started and points to the Claude Console for the actual bill and remaining credit |
+| 10 | $1.00 daily agent limit was 20% of the month | Medium | Lowered to **$0.25** a day (agents only). A Sonnet morning briefing costs about $0.05 and sorting 40 emails on Haiku about $0.01, so a normal day fits; a runaway agent can use at most 5% of the month in a day |
+| 11 | No warning in chat near the limit | Medium | A banner above the chat from 90%, and a choice for when the month is used up: planning chat **keeps working (counted)** or **pauses until next month** |
+| 12 | Haiku 5.5 long prompts under-priced | Low | Over 100K prompt tokens the whole call is priced at $0.50 / $2.50 |
+| 13 | "Safety switch" hid what it does | High | Renamed **Agent controls**: on/stopped, agents switched on, running now, waiting for approval, scheduled, AI available; one red **Stop all agents and actions**; "What Stop does" explains every case |
+| 14 | Stop only took effect between runs | High | A running agent now stops before its next model call or tool call |
+| 15 | Items approved before a stop could run on resume | High | Approving is refused while stopped. On resume, anything approved that became due goes back to "To review" and you're told once. Future scheduled items keep their time and still face the normal approval expiry |
+| 16 | Security settings were a long flat list | Low | A short status list, with signed-in devices, two-step sign-in, backups and activity log in sections that open on tap |
+| 17 | Lock-screen settings were split from notifications | Low | Moved into Reminders & notifications ("What reaches your lock screen") |
+
+### The $2.95 on the earlier screenshots
+
+It was **sample data**, not spending. To show the AI Usage screen, three usage records were written into a separate
+practice database in the review workspace (never the live one). One of them used the token counts from the Claude
+Console (283,313 in, 18,957 out) priced at list rates with no caching: 283,313 × $4/M + 18,957 × $20/M = $1.51. The
+other two added $1.44. Your real figures: the Console's $1.09 for 30 days is lower than $1.51 because part of the
+input was served from Anthropic's cache at a tenth of the price.
+
+Checked: model ids and prices (Opus 5.5 $4 / $20 per million, cache read $0.20, cache write $5; Sonnet 5.5 $2 / $10;
+Haiku 5.5 $0.10 / $0.50, $0.50 / $2.50 over 100K); `input_tokens` excludes cached tokens, which are priced
+separately; costs are US dollars; each call is recorded once (failed calls at $0 and marked "not measured"; no retries
+of model calls); months and days follow India time. Production starts at $0.00: nothing is back-filled and no sample
+records exist outside the test and screenshot databases. The screen says "Measured by Nikki since <date>".
+
+| Figure | Where it comes from | Shown in Nikki as |
+| --- | --- | --- |
+| Actual spend and remaining credit | Claude Console (Usage, Billing) | A pointer to the Console. Nikki does not hold an admin key, so it cannot read these |
+| Nikki-measured spend | Token counts on each API response × list price | Today, This month, Left this month |
+| Estimates | Reservations made before an agent call (worst case) | Not shown as spend; released after the call |
+| Limits | Your settings | $5.00 / month, $0.25 / day for agents |
+
+### Security assessment
+
+| Area | Result |
+| --- | --- |
+| Sessions and cookies | Random token per device, only its hash stored; HttpOnly, SameSite=Strict, Secure on HTTPS; 30-day sliding expiry; remote sign-out; tested |
+| Sign-in protection | Rate limits and lockout; optional two-step sign-in; password re-check for sensitive steps; new-device alerts deduplicated |
+| Encryption | AES-256-GCM, key only in Railway; rotation supported; losing the key makes encrypted backups unreadable, so a copy in Apple Passwords is required |
+| Credential readiness | No outside account connected; tokens are refused without the key |
+| Spaces and permissions | Enforced on the server by the tool gateway; AI-made agent settings start off; Government space off and never sent to AI |
+| Approval integrity | Bound to a hash of the exact item; edit voids it; expiry (1 hour for consequential, 24 hours otherwise); no approving while stopped; resume asks again |
+| Emergency stop, jobs | Persistent across restarts; leases stop double runs; interrupted outside actions become "uncertain", never retried |
+| Budget | Agents reserve the worst case before calling and stop before exceeding the month or day |
+| Prompt injection | Stored and outside data reaches AI wrapped as untrusted data; tools are an allow-list checked in code |
+| Logging | Activity log stores ids and kinds, not content; append-only |
+| Backup and restore | Encrypted nightly, 14 kept, copy before every schema upgrade; restore steps in operations.md |
+| Migrations | Additive only (two new nullable columns this review); older code still runs on the upgraded database |
+| Test isolation | Tests use throwaway temporary databases; screenshots used a separate practice database; the test-notification route is gone. Fixtures cannot reach production |
+| External actions | None exist in Phase 0. The three action kinds (task, reminder, in-app note) stay inside Nikki |
+
+### Test results (28 Nov 2026)
+
+`npm test` 156 of 156 pass; `npm run typecheck` and `npm run build` pass. New tests cover: wording on inbox items;
+edit voids an approval; "Later" hides an item until its time and never past expiry; no approving while stopped and no
+running on resume; stop inside a running agent; cost maths including cache and Haiku long prompts; budget defaults,
+start date and no back-fill; only agents can create inbox items; the test-notification route is gone; sign-in alerts.
+Screens rechecked on phone, tablet and laptop: no console errors, no horizontal overflow.
+
+**Verified:** everything above, on a local copy. **Not verified until you test:** iPhone push (lock screen, badge,
+tapping through), behaviour on the live Railway service, and Railway volume backups.
+
+### Readiness
+
+Ready for your review of the screens. After your approval, deploy by following the checklist in operations.md
+section 6. Phase 1 needs its own approval.
 
 ## Next steps
 

@@ -5,6 +5,7 @@ import type { AppActions } from "../App";
 import { fmtDate, fmtTime } from "../util";
 import { ActionSheet } from "./MoveSheet";
 import { FormSheet } from "./TaskList";
+import { NotificationChoices } from "./Safety";
 
 const addDays = (date: string, n: number) => {
   const d = new Date(`${date}T12:00:00Z`);
@@ -255,6 +256,7 @@ export function NotificationsCard({ state, actions }: { state: AppState; actions
         </div>
       )}
       {perm === "denied" && live && supported && <p className="muted small">Notifications are blocked in your browser settings for this site.</p>}
+      {live && <NotificationChoices toast={actions.toast} />}
     </section>
   );
 }
