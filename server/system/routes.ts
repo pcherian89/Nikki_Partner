@@ -242,6 +242,11 @@ systemRouter.post("/api/system/backups/run", h(async (req, res) => {
   if (!b) throw new UserFacingError("Backups need the server encryption key (NIKKI_ENCRYPTION_KEY) first.", 409, "no_encryption_key");
   res.json(overview(req));
 }));
+systemRouter.post("/api/system/backups/:file/prepare", h((req, res) => {
+  requireRecentAuth(req);
+  if (!backupPath(String(req.params.file))) throw new UserFacingError("That backup wasn't found.", 404, "not_found");
+  res.json({ ok: true });
+}));
 /** Encrypted file only: useless without the server key. Needs a fresh password check. */
 systemRouter.get("/api/system/backups/:file", h((req, res) => {
   requireRecentAuth(req);

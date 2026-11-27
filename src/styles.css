@@ -3945,3 +3945,28 @@ body {
 :root[data-theme="light"] .nikki-figure img {
   filter: drop-shadow(0 14px 18px rgba(40, 70, 20, 0.22));
 }
+
+/* ---------- Phase 0: inbox bell ---------- */
+.icon-btn.bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+}
+.bell-count {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #0b0f0c;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
