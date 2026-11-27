@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { safeFetch } from "./security/ssrf.js";
 import IcalExpander from "ical-expander";
 import type { CalendarFeedInfo } from "../shared/types.js";
 import { UserFacingError } from "./assistant.js";
@@ -75,7 +76,7 @@ async function fetchIcs(url: string): Promise<string> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15_000);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, headers: { accept: "text/calendar, */*" }, redirect: "follow" });
+    const res = await safeFetch(url, { signal: ctrl.signal, headers: { accept: "text/calendar, */*" } });
     if (!res.ok) throw new Error(res.status === 404 ? "The calendar link wasn't found (404). It may have been reset." : `The calendar server answered ${res.status}.`);
     const len = Number(res.headers.get("content-length") ?? 0);
     if (len > MAX_BYTES) throw new Error("This calendar is too large to sync.");

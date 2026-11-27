@@ -3,6 +3,8 @@ import type { NotificationStatus, Reminder } from "../shared/types.js";
 import { clockIso, DB, getSetting, setSetting } from "./db.js";
 import { UserFacingError } from "./errors.js";
 import type { Deliver } from "./reminders.js";
+import { getSecret, putSecret } from "./security/secrets.js";
+import { notify } from "./system/notifications.js";
 
 /**
  * Web Push: notifications to devices that opted in, even when Nikki is closed. Free (the browser vendor's push
@@ -19,14 +21,15 @@ export function setPushSender(fn: Sender | null) {
 }
 
 function keys(db: DB): { publicKey: string; privateKey: string } {
-  const get = (k: string) => (db.prepare("SELECT value FROM secrets WHERE key = ?").get(k) as { value: string } | undefined)?.value;
-  let publicKey = get("vapid_public");
-  let privateKey = get("vapid_private");
+  // The signing key lives in the secrets store: sealed with the server key once one is configured (security/vault.ts).
+  let publicKey = getSecret(db, "vapid_public");
+  let privateKey = getSecret(db, "vapid_private");
   if (!publicKey || !privateKey) {
     const k = webpush.generateVAPIDKeys();
     publicKey = k.publicKey;
     privateKey = k.privateKey;
-    db.prepare("INSERT OR REPLACE INTO secrets (key, value) VALUES ('vapid_public', ?), ('vapid_private', ?)").run(publicKey, privateKey);
+    putSecret(db, "vapid_public", publicKey, "operational");
+    putSecret(db, "vapid_private", privateKey, "operational");
   }
   return { publicKey, privateKey };
 }
@@ -86,12 +89,16 @@ export async function sendPush(db: DB, payload: Record<string, unknown>, urgency
   return accepted;
 }
 
-/** Used by the reminder loop: a push for a due reminder. Records "push" only if at least one device accepted it. */
+/**
+ * Used by the reminder loop: the reminder goes into the notification centre (history, unread badge) and is pushed to
+ * every device. A reminder the user set for a time is delivered even during quiet hours. Records "push" only if at
+ * least one device's push service accepted it.
+ */
 export const deliverByPush =
   (db: DB): Deliver =>
   async (r: Reminder) => {
-    const n = await sendPush(db, { kind: "reminder", id: r.id, title: "Reminder", body: r.title, tag: r.id });
-    return n > 0 ? ["push"] : [];
+    const { pushed } = await notify(db, { category: "reminder", priority: "high", title: "Reminder", body: r.title, kind: "reminder", link: "/?view=today", bypassQuiet: true, dedupeKey: `reminder:${r.id}:${r.remindAt}` });
+    return pushed > 0 ? ["push"] : [];
   };
 
 /** Sends a test notification. It counts as verified only when the device acknowledges it. */

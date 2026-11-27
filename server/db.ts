@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { currentInstant, isValidTimeZone, localDateOf } from "./time.js";
 import { assessTimer } from "./timerRules.js";
+import { SYSTEM_SCHEMA, SYSTEM_WIPE_TABLES } from "./system/schema.js";
 import type {
   TaskDraft,
   TaskStep,
@@ -227,7 +228,7 @@ CREATE TABLE IF NOT EXISTS requests (
 const dbs = new Map<Workspace, DB>();
 
 /** Bump when the stored layout changes. Existing databases are copied aside before they are migrated. */
-export const SCHEMA_VERSION = 6; // 6: memory_items. 5: projects, milestones, tasks.project_id/milestone_id. 4: reminders, push_subscriptions, secrets. 2: work_sessions, block_outcomes. 3: priority, optional, deadline_time, verified sessions, pinned/provisional blocks
+export const SCHEMA_VERSION = 7; // 7: Phase 0 system tables (server/system/schema.ts). 6: memory_items. 5: projects, milestones, tasks.project_id/milestone_id. 4: reminders, push_subscriptions, secrets. 2: work_sessions, block_outcomes. 3: priority, optional, deadline_time, verified sessions, pinned/provisional blocks
 const KEEP_SNAPSHOTS = 5;
 
 /**
@@ -272,6 +273,7 @@ export function getDb(ws: Workspace): DB {
   const version = db.pragma("user_version", { simple: true }) as number;
   if (version < SCHEMA_VERSION) snapshotBeforeMigration(db, file, version);
   db.exec(SCHEMA);
+  db.exec(SYSTEM_SCHEMA);
   migrate(db);
   if (version < SCHEMA_VERSION) db.pragma(`user_version = ${SCHEMA_VERSION}`);
   dbs.set(ws, db);
@@ -347,7 +349,7 @@ export const TABLES = [
 /** Wipes every table in a workspace (used for Reset demo / Delete my data). */
 export function wipe(db: DB) {
   db.transaction(() => {
-    for (const t of [...TABLES, "push_subscriptions"]) {
+    for (const t of [...TABLES, "push_subscriptions", ...SYSTEM_WIPE_TABLES]) {
       db.prepare(`DELETE FROM ${t}`).run();
     }
   })();

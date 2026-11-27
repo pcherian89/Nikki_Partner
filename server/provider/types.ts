@@ -14,12 +14,16 @@ export interface ProviderRequest {
   /** JSON Schema the reply must follow. */
   schema: Record<string, unknown>;
   signal?: AbortSignal;
+  /** What the call is for, for AI usage tracking (defaults to "planner"). */
+  workflow?: string;
 }
 
 export interface ProviderResult {
   /** Raw JSON text returned by the model. */
   text: string;
   model: string;
+  /** Token counts reported by the API, when the provider gives them. */
+  usage?: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number };
 }
 
 export interface PlannerProvider {
@@ -32,7 +36,7 @@ export interface PlannerProvider {
 export class ProviderError extends Error {
   constructor(
     message: string,
-    public code: "auth" | "rate_limit" | "timeout" | "network" | "overloaded" | "bad_request" | "refusal" | "truncated" | "invalid_output" | "unknown",
+    public code: "auth" | "rate_limit" | "timeout" | "network" | "overloaded" | "bad_request" | "refusal" | "truncated" | "invalid_output" | "credit" | "budget" | "unknown",
     public status = 502,
   ) {
     super(message);

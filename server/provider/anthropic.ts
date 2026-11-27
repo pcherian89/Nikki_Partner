@@ -67,7 +67,12 @@ export class AnthropicProvider implements PlannerProvider {
       .map((b) => b.text)
       .join("");
     if (!text.trim()) throw new ProviderError("Claude returned an empty reply.", "invalid_output");
-    return { text, model: response.model };
+    const u = response.usage;
+    return {
+      text,
+      model: response.model,
+      usage: { inputTokens: u.input_tokens, outputTokens: u.output_tokens, cacheReadTokens: u.cache_read_input_tokens ?? 0, cacheWriteTokens: u.cache_creation_input_tokens ?? 0 },
+    };
   }
 }
 
@@ -94,6 +99,9 @@ function mapError(err: unknown): ProviderError {
   if (err instanceof Anthropic.NotFoundError) {
     return new ProviderError("The configured model was not found. Check ANTHROPIC_MODEL in your .env file.", "bad_request", 502);
   }
+  if (err instanceof Anthropic.APIError && isCreditError(err)) {
+    return new ProviderError("Your Anthropic API credit has run out. Add credit in the Claude Console (Billing); Nikki never buys credit automatically.", "credit", 402);
+  }
   if (err instanceof Anthropic.BadRequestError) {
     return new ProviderError(`Claude rejected the request: ${apiMessage(err)}`, "bad_request", 502);
   }
@@ -110,4 +118,9 @@ function mapError(err: unknown): ProviderError {
 function apiMessage(err: InstanceType<typeof Anthropic.APIError>) {
   const body = err.error as { error?: { message?: string } } | undefined;
   return body?.error?.message ?? err.message;
+}
+
+/** The API's "credit balance is too low" refusal (a 400 with that message). */
+export function isCreditError(err: InstanceType<typeof Anthropic.APIError>) {
+  return /credit balance is too low|insufficient credit/i.test(apiMessage(err));
 }
