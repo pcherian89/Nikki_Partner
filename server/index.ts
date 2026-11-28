@@ -1,5 +1,5 @@
 import express, { NextFunction, Request, Response } from "express";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -18,6 +18,7 @@ import {
   deleteTask,
   finishRequest,
   getDb,
+  closeAll,
   getProfile,
   getTask,
   listMeetings,
@@ -71,6 +72,11 @@ import { linkTask, setMilestoneStatus, setProjectStatus } from "./projects.js";
 import { addMemory, removeMemory, updateMemory } from "./memory.js";
 import { addDays, isValidDate, isValidTime, isValidTimeZone, localNow } from "./time.js";
 import { validateMeeting, validatePlanDraft } from "./validate.js";
+import { authRouter, requireAuth } from "./security/auth.js";
+import { loadInlineScriptHashes, sameOriginOnly, securityHeaders } from "./security/http.js";
+import { systemRouter } from "./system/routes.js";
+import { bootstrapSystem } from "./system/bootstrap.js";
+import { startJobRunner, stopJobRunner } from "./system/jobs.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -80,60 +86,11 @@ const smallJson = express.json({ limit: "256kb" });
 // Data import gets its own, larger limit (see /api/import).
 app.use((req, res, next) => (req.path === "/api/import" ? next() : smallJson(req, res, next)));
 
-// ---------- optional password protection (required for public hosting) ----------
+// ---------- security: headers, same-origin check, device sessions (server/security) ----------
 
-const SESSION_COOKIE = "nikki_session";
-const sessionToken = () => createHmac("sha256", config.appPassword).update("nikki-session-v1").digest("hex");
-
-function readCookie(req: Request, name: string) {
-  const raw = req.headers.cookie ?? "";
-  for (const part of raw.split(";")) {
-    const [k, ...v] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(v.join("="));
-  }
-  return null;
-}
-
-function isAuthed(req: Request) {
-  if (!config.appPassword) return true;
-  const c = readCookie(req, SESSION_COOKIE);
-  if (!c) return false;
-  const a = Buffer.from(c);
-  const b = Buffer.from(sessionToken());
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-const loginAttempts = new Map<string, { count: number; until: number }>();
-
-app.get("/api/auth/status", (req, res) => {
-  res.json({ authRequired: !!config.appPassword, authed: isAuthed(req) });
-});
-
-app.post("/api/auth/login", (req, res) => {
-  const ip = req.ip ?? "unknown";
-  const rec = loginAttempts.get(ip);
-  if (rec && rec.count >= 5 && Date.now() < rec.until) {
-    return res.status(429).json({ error: "Too many attempts. Wait a few minutes and try again." });
-  }
-  const pw = String(req.body?.password ?? "");
-  const a = Buffer.from(createHmac("sha256", "cmp").update(pw).digest("hex"));
-  const b = Buffer.from(createHmac("sha256", "cmp").update(config.appPassword).digest("hex"));
-  if (!config.appPassword || !timingSafeEqual(a, b)) {
-    loginAttempts.set(ip, { count: (rec?.count ?? 0) + 1, until: Date.now() + 5 * 60_000 });
-    return res.status(401).json({ error: "Wrong password." });
-  }
-  loginAttempts.delete(ip);
-  res.setHeader(
-    "Set-Cookie",
-    `${SESSION_COOKIE}=${sessionToken()}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${60 * 60 * 24 * 30}${req.secure ? "; Secure" : ""}`,
-  );
-  res.json({ ok: true });
-});
-
-app.post("/api/auth/logout", (_req, res) => {
-  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
-  res.json({ ok: true });
-});
+app.use(securityHeaders);
+app.use(sameOriginOnly);
+app.use(authRouter);
 
 // Public but secret: calendar apps can't log in, so the long random token is the key.
 app.get("/cal/:file", (req, res) => {
@@ -151,10 +108,8 @@ app.get("/cal/:file", (req, res) => {
   res.send(buildIcs(db, tz));
 });
 
-app.use("/api", (req, res, next) => {
-  if (req.path === "/health" || isAuthed(req)) return next();
-  res.status(401).json({ error: "Please log in.", code: "auth_required" });
-});
+app.use("/api", requireAuth);
+app.use(systemRouter);
 
 // ---------- helpers ----------
 
@@ -972,6 +927,7 @@ app.use("/api", (_req, res) => res.status(404).json({ error: "Not found." }));
 
 const distDir = path.resolve("dist");
 if (fs.existsSync(path.join(distDir, "index.html"))) {
+  loadInlineScriptHashes(path.join(distDir, "index.html"));
   app.use(
     express.static(distDir, {
       index: false,
@@ -1024,6 +980,9 @@ if (isMain && config.publicDeployment && config.appPassword.length < 10) {
 
 if (isMain) {
   for (const ws of ["personal", "demo"] as const) recoverRequests(getDb(ws));
+  // Phase 0: spaces, sealing stored secrets, recovering interrupted jobs/actions, built-in jobs.
+  await bootstrapSystem(getDb("personal"));
+  startJobRunner(() => getDb("personal"));
   // Keep linked calendars fresh even when nobody has the app open.
   setInterval(() => {
     for (const ws of ["personal", "demo"] as const) {
@@ -1044,7 +1003,7 @@ if (isMain) {
   };
   setInterval(fireReminders, 20_000).unref();
   void fireReminders();
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     console.log(`Nikki is running on http://localhost:${config.port}`);
     console.log(`  Personal data: ${dbPath("personal")}`);
     if (config.movedIntoVolume) console.log(`  (DATABASE_PATH ${config.movedIntoVolume} is outside the volume, so the volume path is used instead.)`);
@@ -1055,6 +1014,16 @@ if (isMain) {
         ? `  Live AI: ON (model ${config.model})`
         : "  Live AI: OFF (no ANTHROPIC_API_KEY) — Demo mode works; personal workspace can store data but can't call Claude.",
     );
-    if (config.appPassword) console.log("  Password protection: ON");
+    if (config.appPassword) console.log("  Password protection: ON (per-device sessions)");
   });
+  // Graceful shutdown on redeploy: stop taking requests, let running jobs finish (up to 10 s), close the databases.
+  const shutdown = async (sig: string) => {
+    console.log(`[server] ${sig}: shutting down…`);
+    server.close();
+    await stopJobRunner();
+    closeAll();
+    process.exit(0);
+  };
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+  process.once("SIGINT", () => void shutdown("SIGINT"));
 }

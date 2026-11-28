@@ -10,8 +10,19 @@ import { Login } from "./components/Login";
 import { Today } from "./components/Today";
 import { Welcome } from "./components/Welcome";
 import { TaskHelper } from "./components/TaskTools";
+import { Bell, BudgetNotice, Inbox } from "./components/Safety";
 
-export type View = "home" | "today" | "everything" | "context";
+export type View = "home" | "today" | "everything" | "context" | "inbox";
+
+/** Notification deep links open a view: /?view=inbox, /?view=context#ai-usage. */
+function initialView(): View {
+  try {
+    const v = new URLSearchParams(location.search).get("view");
+    return v === "home" || v === "today" || v === "everything" || v === "context" || v === "inbox" ? v : "today";
+  } catch {
+    return "today";
+  }
+}
 
 export interface Toast {
   text: string;
@@ -74,7 +85,8 @@ export default function App() {
   const [ws, setWs] = useState<Workspace | null>(null);
   const [state, setState] = useState<AppState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [view, setView] = useState<View>("today");
+  const [view, setView] = useState<View>(initialView);
+  const [badgeTick, setBadgeTick] = useState(0);
   const [pane, setPane] = useState<"nikki" | "plan">("plan");
   const [toast, setToastState] = useState<Toast | null>(null);
   const [pending, setPending] = useState<PendingSend | null>(null);
@@ -258,6 +270,7 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <Bell onOpen={() => setView("inbox")} tick={badgeTick + (view === "inbox" ? 1 : 0)} />
         <ThemeQuickToggle />
         <ModeBadge state={state} onClick={() => setView("context")} />
       </header>
@@ -286,6 +299,7 @@ export default function App() {
                 <Today state={state} actions={actions} busy={!!pending} />
               </section>
               <section className="col-chat" aria-label="Conversation with Nikki">
+                <BudgetNotice tick={badgeTick} />
                 <Chat
                   state={state}
                   actions={actions}
@@ -304,6 +318,7 @@ export default function App() {
           ))}
         {view === "everything" && <Everything state={state} actions={actions} />}
         {view === "context" && <ContextView state={state} actions={actions} />}
+        {view === "inbox" && <Inbox actions={actions} onChange={() => setBadgeTick((t) => t + 1)} />}
       </main>
 
       {helper && <TaskHelper state={state} actions={actions} taskId={helper.taskId} mode={helper.mode} onClose={() => setHelper(null)} />}

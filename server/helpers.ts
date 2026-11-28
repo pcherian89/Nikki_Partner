@@ -106,7 +106,7 @@ async function callJson<T>(system: string, user: string, schema: Record<string, 
   }
   const messages: ProviderMessage[] = [{ role: "user", content: user }];
   for (let attempt = 0; attempt < 2; attempt++) {
-    const raw = await provider.generate({ system, messages, schema });
+    const raw = await provider.generate({ system, messages, schema, workflow: "task_helper" });
     const first = raw.text.indexOf("{");
     const last = raw.text.lastIndexOf("}");
     try {
