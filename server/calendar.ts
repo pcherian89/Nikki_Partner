@@ -5,6 +5,7 @@ import type { CalendarFeedInfo } from "../shared/types.js";
 import { UserFacingError } from "./assistant.js";
 import { DB, getSetting, newId, nowIso, setSetting } from "./db.js";
 import { rebuildPlanMeetings } from "./planOps.js";
+import { dropIcalDuplicates } from "./google/calendarSync.js";
 import { addDays, currentInstant, localNow, toMinutes } from "./time.js";
 
 /**
@@ -146,6 +147,7 @@ export async function syncFeed(db: DB, feedId: string, tz: string): Promise<{ wa
     const ics = await fetchIcs(feed.url);
     const events = expandIcs(ics, feed.id, tz, new Date(currentInstant().getTime() - 86_400_000));
     storeEvents(db, feed.id, events, today);
+    dropIcalDuplicates(db, today); // events a connected Google Calendar already shows appear once
     feed.lastError = null;
     feed.eventCount = events.filter((e) => e.date >= today).length;
   } catch (e) {

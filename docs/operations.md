@@ -152,3 +152,37 @@ branch, tell Claude before anything is merged.
    older code.
 2. If data looks wrong, restore from the pre-upgrade copy or a Railway volume backup (section 3, Rolling back data).
 3. Context → Agent controls → **Stop** at any time; it does not affect planning or your data.
+
+
+## 7. Connecting Google (Stage 1A, only after the deploy is approved)
+
+Nikki reads Gmail and Google Calendar through Google's official MCP servers, read-only. Each personal Google account
+needs one small Google Cloud project in **Personal mode** (no app review, works only for your own account).
+
+**Before you start (in Nikki → Context → Accounts → Add a Google account):** the five safety checks must be ticked:
+key set, key saved in your password manager, a recent backup, a passed restore test, and a backup downloaded to your Mac.
+
+**In Google Cloud (signed in as the Gmail you're connecting):**
+1. Open the personal quick setup:
+   `https://console.cloud.google.com/auth/overview/personal?apis=ws,wsmcp,tasksmcp&clientType=web&isAgent=true`
+2. Create a project called **Nikki**.
+3. Client name **Nikki**, type **Web application**.
+4. Authorised redirect URI, exactly: `https://nikkipartner-production.up.railway.app/oauth/google/callback`
+5. Make sure **Use this client for an AI-powered agent** is ticked. Accept the user data policy. Continue.
+6. Google shows a **Client ID** and **Client secret**. Don't paste them into chat.
+
+**In Railway (Nikki_Partner → Variables):** add
+- `GOOGLE_CLIENT_ID` = the client ID (ends in `.apps.googleusercontent.com`)
+- `GOOGLE_CLIENT_SECRET` = the client secret
+- `PUBLIC_URL` = `https://nikkipartner-production.up.railway.app`
+
+Saving variables makes Railway redeploy Nikki (about a minute). Your data is on the volume and is not affected.
+
+**Back in Nikki:** Context → Accounts → Add a Google account → enter the Gmail address → Continue to Google → choose
+the account → allow Gmail (read) and Calendar (read). You come back to Nikki, connected.
+
+**To disconnect:** Context → Accounts → Disconnect. Also possible from Google: myaccount.google.com → Security →
+Your connections to third-party apps → Nikki → Delete all connections.
+
+**If something goes wrong:** the account card shows a plain message (wrong account, cancelled, expired sign-in,
+client details rejected, redirect mismatch). Nothing is stored unless the whole sign-in succeeds.

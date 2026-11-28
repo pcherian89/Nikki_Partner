@@ -43,6 +43,8 @@ import { confirmStillWorking, finishTask, reportSession, resolveSession, startTi
 import { breakDown, helpMeStart } from "./helpers.js";
 import { importWorkspace } from "./importer.js";
 import { addFeed, removeFeed, syncFeed, syncStale } from "./calendar.js";
+import { googleRouter } from "./google/routes.js";
+import { syncGoogleStale } from "./google/calendarSync.js";
 import { buildIcs, disableFeed, getFeedToken, resetFeedToken } from "./icsExport.js";
 import { getProvider } from "./provider/index.js";
 import { ProviderError } from "./provider/types.js";
@@ -110,6 +112,7 @@ app.get("/cal/:file", (req, res) => {
 
 app.use("/api", requireAuth);
 app.use(systemRouter);
+app.use(googleRouter);
 
 // ---------- helpers ----------
 
@@ -158,6 +161,7 @@ app.get(
   h((req, res) => {
     const c = ctx(req);
     syncStale(c.db, c.tz); // refresh linked calendars in the background if they're stale
+    if (c.ws === "personal") syncGoogleStale(c.db, c.tz);
     res.json({ state: state(req, c) });
   }),
 );
@@ -987,7 +991,9 @@ if (isMain) {
   setInterval(() => {
     for (const ws of ["personal", "demo"] as const) {
       const db = getDb(ws);
-      syncStale(db, resolveTimezone(getProfile(db), getSetting(db, "last_timezone") ?? undefined));
+      const tz = resolveTimezone(getProfile(db), getSetting(db, "last_timezone") ?? undefined);
+      syncStale(db, tz);
+      if (ws === "personal") syncGoogleStale(db, tz);
     }
   }, 15 * 60 * 1000).unref();
   // Fire reminders when their time comes, whether or not the app is open. Delivery to closed apps is by push (opt-in).

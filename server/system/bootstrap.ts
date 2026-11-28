@@ -10,13 +10,20 @@ import { meteringSince } from "./budget.js";
 import { recoverJobs, registerJobHandler, upsertJob } from "./jobs.js";
 import { pruneNotifications, sendQuietDigest } from "./notifications.js";
 import { seedSpaces } from "./spaces.js";
+import { runRestoreCheck } from "../google/recovery.js";
+import { clearEmailFromChat } from "../google/accounts.js";
 
 registerJobHandler("system.quiet_digest", async (db) => void (await sendQuietDigest(db)));
 registerJobHandler("system.scheduled_actions", async (db) => void (await runScheduledActions(db)));
-registerJobHandler("system.backup", async (db) => void (await makeBackup(db)));
+registerJobHandler("system.backup", async (db) => {
+  // Each nightly backup is test-restored straight away, so the recovery check always reflects the newest file.
+  if (await makeBackup(db)) runRestoreCheck(db);
+});
 registerJobHandler("system.housekeeping", (db) => {
   pruneNotifications(db);
   pruneBackups();
+  // Email headers shown in chat are kept for 30 days at most.
+  clearEmailFromChat(db, (_g, createdAt) => Date.parse(createdAt) < Date.now() - 30 * 86_400_000);
 });
 
 /** Seeds the built-in jobs (idempotent: ids are fixed, schedules kept unless changed here). */

@@ -333,6 +333,8 @@ export interface ChatMessage {
     receipts?: Receipt[];
     /** Weekly review: the app's own counts, shown with Nikki's summary. */
     weekly?: WeeklyFacts;
+    /** Phase 1A: an email or calendar answer from connected Google accounts (headers only; see server/google/chat.ts). */
+    google?: Record<string, any>;
   };
 }
 
@@ -390,6 +392,8 @@ export interface AppState {
   calendars: CalendarFeedInfo[];
   /** Secret token for the "Nikki in your calendar" subscription link, or null if not created. */
   nikkiFeedToken: string | null;
+  /** Google services that can be read right now (personal workspace only). */
+  connected?: { gmail: boolean; calendar: boolean };
 }
 
 export interface ApiError {

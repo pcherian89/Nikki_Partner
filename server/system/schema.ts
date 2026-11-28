@@ -176,16 +176,60 @@ CREATE TABLE IF NOT EXISTS notifications (
   push_at TEXT
 );
 CREATE INDEX IF NOT EXISTS notifications_created ON notifications(created_at);
+-- Phase 1A: Google sign-in round trips (single use, 10 minutes; only a hash of the state is kept).
+CREATE TABLE IF NOT EXISTS oauth_states (
+  state_hash TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  session_id TEXT,
+  verifier TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  used_at TEXT
+);
+-- Phase 1A: extra details for calendar events copied from Google (the event itself is a row in meetings).
+CREATE TABLE IF NOT EXISTS google_events (
+  meeting_id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  calendar_id TEXT NOT NULL,
+  calendar_name TEXT,
+  event_id TEXT NOT NULL,
+  date TEXT,
+  title TEXT,
+  html_link TEXT,
+  location TEXT,
+  all_day INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS google_events_account ON google_events(account_id);
+-- Phase 1A: how many requests Nikki made to Google each day (no content).
+CREATE TABLE IF NOT EXISTS provider_calls (
+  day TEXT NOT NULL,
+  product TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  errors INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT,
+  PRIMARY KEY (day, product)
+);
 `;
 
 /** Tables cleared by "Delete my data" in addition to the planning tables. Sessions, the activity log, AI spend and
  *  system jobs are kept: they are needed for security and for the budget, and the log records ids only. */
-export const SYSTEM_WIPE_TABLES = ["notifications", "actions", "agent_runs", "job_runs"];
+export const SYSTEM_WIPE_TABLES = ["notifications", "actions", "agent_runs", "job_runs", "google_events"];
 
 /** Columns added after a table first shipped (additive only). Applied on every start; a no-op once present. */
 const ADDED_COLUMNS: [table: string, column: string, type: string][] = [
   ["actions", "reason", "TEXT"],
   ["actions", "snoozed_until", "TEXT"],
+  // Phase 1A: connected Google accounts.
+  ["connected_accounts", "email", "TEXT"],
+  ["connected_accounts", "display_name", "TEXT"],
+  ["connected_accounts", "account_type", "TEXT"],
+  ["connected_accounts", "google_sub", "TEXT"],
+  ["connected_accounts", "services", "TEXT NOT NULL DEFAULT '[]'"],
+  ["connected_accounts", "agent_access", "TEXT NOT NULL DEFAULT 'none'"],
+  ["connected_accounts", "calendars", "TEXT NOT NULL DEFAULT '[]'"],
+  ["connected_accounts", "sync_status", "TEXT"],
+  ["connected_accounts", "last_sync_at", "TEXT"],
+  ["connected_accounts", "connected_at", "TEXT"],
 ];
 export function ensureSystemColumns(db: { prepare: (sql: string) => { all: () => unknown[]; run: () => unknown } }) {
   for (const [table, column, type] of ADDED_COLUMNS) {

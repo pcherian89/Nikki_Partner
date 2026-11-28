@@ -228,7 +228,7 @@ CREATE TABLE IF NOT EXISTS requests (
 const dbs = new Map<Workspace, DB>();
 
 /** Bump when the stored layout changes. Existing databases are copied aside before they are migrated. */
-export const SCHEMA_VERSION = 7; // 7: Phase 0 system tables (server/system/schema.ts). 6: memory_items. 5: projects, milestones, tasks.project_id/milestone_id. 4: reminders, push_subscriptions, secrets. 2: work_sessions, block_outcomes. 3: priority, optional, deadline_time, verified sessions, pinned/provisional blocks
+export const SCHEMA_VERSION = 8; // 8: Phase 1A Google tables and account columns (additive). 7: Phase 0 system tables (server/system/schema.ts). 6: memory_items. 5: projects, milestones, tasks.project_id/milestone_id. 4: reminders, push_subscriptions, secrets. 2: work_sessions, block_outcomes. 3: priority, optional, deadline_time, verified sessions, pinned/provisional blocks
 const KEEP_SNAPSHOTS = 5;
 
 /**

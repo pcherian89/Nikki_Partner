@@ -5,6 +5,7 @@ import { Avatar } from "./components/Avatar";
 import { ThemeQuickToggle } from "./components/Appearance";
 import { Chat } from "./components/Chat";
 import { ContextView } from "./components/ContextView";
+import { EmailView } from "./components/Email";
 import { Everything } from "./components/Everything";
 import { Login } from "./components/Login";
 import { Today } from "./components/Today";
@@ -12,13 +13,13 @@ import { Welcome } from "./components/Welcome";
 import { TaskHelper } from "./components/TaskTools";
 import { Bell, BudgetNotice, Inbox } from "./components/Safety";
 
-export type View = "home" | "today" | "everything" | "context" | "inbox";
+export type View = "home" | "today" | "everything" | "context" | "inbox" | "email";
 
 /** Notification deep links open a view: /?view=inbox, /?view=context#ai-usage. */
 function initialView(): View {
   try {
     const v = new URLSearchParams(location.search).get("view");
-    return v === "home" || v === "today" || v === "everything" || v === "context" || v === "inbox" ? v : "today";
+    return v === "home" || v === "today" || v === "everything" || v === "context" || v === "inbox" || v === "email" ? v : "today";
   } catch {
     return "today";
   }
@@ -262,6 +263,7 @@ export default function App() {
               ["home", "Home"],
               ["today", "Today"],
               ["everything", "Everything"],
+              ...(state.connected?.gmail ? ([["email", "Email"]] as const) : []),
               ["context", "Context"],
             ] as const
           ).map(([k, label]) => (
@@ -319,6 +321,7 @@ export default function App() {
         {view === "everything" && <Everything state={state} actions={actions} />}
         {view === "context" && <ContextView state={state} actions={actions} />}
         {view === "inbox" && <Inbox actions={actions} onChange={() => setBadgeTick((t) => t + 1)} />}
+        {view === "email" && <EmailView state={state} actions={actions} />}
       </main>
 
       {helper && <TaskHelper state={state} actions={actions} taskId={helper.taskId} mode={helper.mode} onClose={() => setHelper(null)} />}

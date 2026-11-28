@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AppState, Meeting, Task } from "../../shared/types";
 import type { AppActions } from "../App";
+import { calTag } from "../calTag";
 import { fmtDate, fmtDuration, fmtRange, fmtTime } from "../util";
 import { ProposalCard } from "./ProposalCard";
 import { useCompletion, useMoveTask } from "./Today";
@@ -112,7 +113,7 @@ export function Week({ state, actions, onOpenDay, busy }: { state: AppState; act
                       {m.title}
                     </span>
                     {m.source === "calendar" ? (
-                      <span className="tag subtle cal-tag">Calendar</span>
+                      <span className="tag subtle cal-tag">{calTag(m)}</span>
                     ) : (
                       <button className="icon-btn small-x" aria-label={`Delete ${m.title}`} onClick={() => confirm(`Delete “${m.title}”?`) && actions.mutate("DELETE", `/api/meetings/${m.id}`)}>
                         ×
