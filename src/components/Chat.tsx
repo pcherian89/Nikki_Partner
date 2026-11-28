@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { GoogleCard } from "./GoogleCards";
 import type { AppState, ChatMessage, Receipt, WeeklyFacts } from "../../shared/types";
 import type { AppActions, PendingSend } from "../App";
 import { Avatar } from "./Avatar";
@@ -341,9 +342,10 @@ function Message({ m, state, actions }: { m: ChatMessage; state: AppState; actio
       <div className="bubble">
         {m.meta.demo && <div className="demo-tag">Demo reply · scripted</div>}
         <div className="msg-text">
-          {m.text}
+          {m.meta.google?.items?.length && m.meta.google.kind === "email" ? m.text.split("\n")[0] : m.text}
           <span className="msg-time">{timeOf(m.createdAt, state.timezone)}</span>
         </div>
+        {m.meta.google ? <GoogleCard g={m.meta.google} tz={state.timezone} actions={actions} /> : null}
         {questions.length > 0 && !questionsInText && (
           <ol className="questions">
             {questions.map((q) => (

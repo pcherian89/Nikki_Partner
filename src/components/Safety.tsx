@@ -37,7 +37,7 @@ export function fmtLocal(date: string, time?: string) {
 }
 
 /** "Today · 9:12 AM", "Yesterday · 6:40 PM" or "Mon 23 Nov · 8:00 AM" for lists. */
-function fmtRecent(iso: string) {
+export function fmtRecent(iso: string) {
   const d = new Date(iso);
   const today = ymd(new Date());
   const yest = ymd(new Date(Date.now() - 86_400_000));
@@ -55,7 +55,7 @@ function tomorrowMorning() {
 // ---------- shared bits ----------
 
 /** A row that opens to show more. Used to keep settings and explanations out of the way until wanted. */
-function More({ title, hint, children, id, open }: { title: string; hint?: ReactNode; children: ReactNode; id?: string; open?: boolean }) {
+export function More({ title, hint, children, id, open }: { title: string; hint?: ReactNode; children: ReactNode; id?: string; open?: boolean }) {
   return (
     <details className="disclosure" id={id} open={open}>
       <summary>
@@ -68,7 +68,7 @@ function More({ title, hint, children, id, open }: { title: string; hint?: React
 }
 
 /** Calls the API; if the server asks for a fresh password check, shows the prompt and retries once. */
-function useStepUp() {
+export function useStepUp() {
   const [ask, setAsk] = useState<{ resolve: (ok: boolean) => void; twoFactor: boolean } | null>(null);
   const run = useCallback(async <T,>(fn: () => Promise<T>, twoFactor = false): Promise<T> => {
     try {
@@ -584,7 +584,7 @@ function AgentsCard({ ov, call }: { ov: Any; call: Call }) {
         </ul>
       </More>
       <p className="small muted" style={{ marginTop: 10 }}>
-        Connected accounts: {ov.accounts.length ? ov.accounts.map((a: Any) => `${a.label} (${a.status})`).join(", ") : "none. Gmail, Calendar and Drive come later, only after your approval."}
+        Connected accounts: {ov.accounts.length ? ov.accounts.map((a: Any) => `${a.label} (${a.status === "connected" ? "connected, read-only" : a.status === "revoked" ? "disconnected" : a.status.replace("_", " ")})`).join(", ") : "none yet."} Agents can’t use connected accounts. Manage them under Accounts.
       </p>
     </section>
   );

@@ -121,6 +121,13 @@ export function buildState(db: DB, ws: Workspace, headerTz: string | undefined, 
     upcoming: listMeetingsBetween(db, addDays(now.date, 1), addDays(now.date, 30)),
     calendars: feedInfo(db),
     nikkiFeedToken: getFeedToken(db) || null,
+    connected: (() => {
+      // Phase 1A: which Google services can be read right now (decides whether the Email tab shows).
+      if (ws !== "personal") return { gmail: false, calendar: false };
+      const rows = db.prepare("SELECT services FROM connected_accounts WHERE provider LIKE 'google%' AND status = 'connected'").all() as { services: string | null }[];
+      const all = rows.flatMap((r) => { try { return JSON.parse(r.services ?? "[]") as string[]; } catch { return []; } });
+      return { gmail: all.includes("gmail"), calendar: all.includes("calendar") };
+    })(),
     storageWarning: ws === "personal" ? config.storageWarning : null,
     buildId: currentBuildId(),
     history: dayHistory(db, now.date, tz, now),

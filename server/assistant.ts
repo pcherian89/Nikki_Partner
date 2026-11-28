@@ -54,6 +54,7 @@ import { buildFacts, computeTaskMeta, deadlinesThisWeek, suggestNext } from "./d
 import type { Viewer } from "./timer.js";
 
 export { UserFacingError } from "./errors.js";
+import { answerIntent, detectIntent } from "./google/chat.js";
 
 export interface TurnInput {
   ws: Workspace;
@@ -402,6 +403,24 @@ export function isBusy(ws: Workspace) {
 export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage; proposal: Proposal | null }> {
   const { db, ws } = input;
   if (inFlight.has(ws)) throw new UserFacingError("Nikki is still working on your previous message.", 409, "busy");
+  // Email and calendar look-ups ("show my latest emails", "what's on tomorrow?") are answered by the app itself, with
+  // no AI and no cost. Anything else goes to the planner exactly as before. Personal workspace only.
+  if (ws === "personal" && input.kind === "chat") {
+    const intent = detectIntent(input.text, localNow(input.timezone).date);
+    if (intent) {
+      inFlight.add(ws);
+      try {
+        const answer = await answerIntent(db, intent, input.timezone);
+        if (answer) {
+          addMessage(db, { role: "user", text: input.text, meta: { kind: input.kind } });
+          const message = addMessage(db, { role: "assistant", text: answer.text, meta: { kind: input.kind, ...answer.meta } as ChatMessage["meta"] });
+          return { message, proposal: null };
+        }
+      } finally {
+        inFlight.delete(ws);
+      }
+    }
+  }
   const provider = ws === "personal" ? getProvider() : null;
   if (ws === "personal" && !provider) {
     throw new UserFacingError(

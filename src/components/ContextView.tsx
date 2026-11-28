@@ -1,5 +1,6 @@
 import { NotificationsCard } from "./Reminders";
 import { SafetySections } from "./Safety";
+import { AccountsCard } from "./Accounts";
 import { StrategyCard } from "./Strategy";
 import { AppearanceCard } from "./Appearance";
 import { useEffect, useMemo, useState } from "react";
@@ -119,6 +120,7 @@ export function ContextView({ state, actions }: { state: AppState; actions: AppA
 
       <StrategyCard state={state} actions={actions} />
 
+      {!demo && <AccountsCard actions={actions} />}
       <Calendars state={state} actions={actions} />
       <NikkiInCalendar state={state} actions={actions} />
       <NotificationsCard state={state} actions={actions} />

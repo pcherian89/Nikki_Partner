@@ -136,3 +136,24 @@ Only the agent tool gateway calls `proposeAction` (a test checks this). Each act
 3. Store tokens with `storeAccountCredential` (sealed; refused without a key). Delete on disconnect.
 4. Google: use the official Workspace MCP servers (required for AI agents from 1 Feb 2027). Derived data from Google
    may not be kept more than 30 days, and nothing after disconnect.
+
+## Google, Stage 1A (read-only Gmail and Calendar)
+
+Code: `server/google/`. Checked against Google's documentation on 28 Nov 2026.
+
+| Piece | What it does |
+|---|---|
+| `config.ts` | Scopes (`gmail.readonly`, `calendar.readonly`, plus `openid email profile`), endpoints, redirect address (`PUBLIC_URL` or Railway's domain + `/oauth/google/callback`), `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` from the environment only. |
+| `mcp.ts` | Minimal client for Google's remote MCP servers (Streamable HTTP, JSON-RPC, bearer token; JSON or SSE replies; `initialize` handshake only if a server asks). Uses the self-mode toolsets (`/mcp/v1self`). **Only the read tools in `READ_TOOLS` can be called**; anything else is refused before a request. Never answers Google's approval forms. Counts calls per day (`provider_calls`), stops at 1,500 per product (Google's free tier is 5,000/day/project). |
+| `accounts.ts` | Connect (OAuth code flow + PKCE S256, single-use 10-minute state bound to the signed-in device, `login_hint`), identity check (verified email; must match the address entered; personal accounts only, `hd` refused; same Google id on reconnect; no duplicates), granted-scope check, sealed refresh token (`account:<id>`), in-memory access tokens, refresh, `needs_reconnect` + one notification, disconnect (revoke at Google, delete token, remove Nikki's copies of Google data, keep the user's own records). |
+| `recovery.ts` | The prerequisite before any Google sign-in is stored: key set, key saved elsewhere (user confirms), recent backup, a restore test of that backup (decrypt + `PRAGMA integrity_check`), a backup downloaded to a device in the last 7 days. Each nightly backup is test-restored automatically. |
+| `calendarSync.ts` | Copies chosen calendars (main calendar by default; Nikki's own subscribed feed is never read back) for yesterday → +31 days into `meetings` (`feed_id = google:<account>:<calendar>`), details in `google_events`. Skips cancelled, declined, free and working-location events; all-day events are kept for answers but don't block planning time; repeating masters are expanded. Removes iCal copies of events Google already provides. Refreshes every 10–15 minutes while used. |
+| `gmail.ts` | Live search (`search_threads`) and conversation reading (`get_thread`, plain text). No mailbox copy; 2-minute in-memory cache. Gmail links from Google's `viewUrl`, else `mail.google.com/mail/u/<email>/#all/<threadId>`. |
+| `chat.ts` | Code-first answers in the existing chat for look-ups ("show my latest emails", "emails from Asha about the contract", "what's my schedule today?", "what can you access?"). No AI, no cost. Requests to *do* things go to the planner unchanged. Calendar questions are only taken over once Google Calendar is connected. |
+| `routes.ts` | `/api/google/*` (signed in) and `/oauth/google/callback` (not signed in: the cookie is SameSite=Strict, so the state is the proof). |
+
+**What is stored:** the sealed refresh token; account email, name, Google id, granted scopes, chosen calendars, sync
+status; copies of upcoming calendar events; the sender/subject/date of email results shown in chat (removed after 30
+days or on disconnect). Email bodies are never stored. Nothing Google-derived is sent to an AI model in Stage 1A.
+
+**Agents:** have no Google tools in Stage 1A (`agent_access = 'none'`).
