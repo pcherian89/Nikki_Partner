@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { AppState, Plan, PlanBlock, Task } from "../../shared/types";
 import { api, ApiError } from "../api";
+import { calTag } from "../calTag";
 import { AutoTextarea } from "./AutoTextarea";
 import type { AppActions } from "../App";
 import { ProposalCard } from "./ProposalCard";
@@ -480,9 +481,10 @@ function Schedule({
                     <span className="slot-title">{task?.title ?? b.title}</span>
                     <span className="slot-meta">
                       {b.kind === "focus" && <span className="tag">Main focus</span>}
-                      {b.kind === "meeting" && state.meetings.concat(state.tomorrow.meetings).find((m) => m.id === b.meetingId)?.source === "calendar" && (
-                        <span className="tag subtle">Calendar</span>
-                      )}
+                      {b.kind === "meeting" && (() => {
+                        const mt = state.meetings.concat(state.tomorrow.meetings).find((m) => m.id === b.meetingId);
+                        return mt?.source === "calendar" ? <span className="tag subtle">{calTag(mt)}</span> : null;
+                      })()}
                       {task?.status === "blocked" && <span className="tag warn">Blocked</span>}
                       {task?.status === "waiting" && <span className="tag subtle">Waiting</span>}
                       {current && <span className="tag now">Now</span>}
@@ -613,7 +615,7 @@ function Meetings({
           <li key={m.id} className="row between center-y">
             <span>
               <strong>{fmtRange(m.start, m.end)}</strong> · {m.title}
-              {m.source === "calendar" && <span className="tag subtle cal-tag">Calendar</span>}
+              {m.source === "calendar" && <span className="tag subtle cal-tag">{calTag(m)}</span>}
             </span>
             {m.source !== "calendar" && <span className="row gap">
               <button className="btn small ghost" onClick={() => { setAdding(true); setEditId(m.id); setForm({ title: m.title, start: m.start, end: m.end }); }}>

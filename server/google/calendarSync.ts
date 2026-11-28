@@ -20,6 +20,15 @@ import { callReadTool, GoogleError } from "./mcp.js";
 
 const SYNC_DAYS = 31;
 export const STALE_MS = 10 * 60_000;
+/** When Google Calendar itself can't be used (preview access, not enabled), try again only every 6 hours. */
+export const UNAVAILABLE_RETRY_MS = 6 * 60 * 60_000;
+
+/** True when the failure means Calendar access isn't offered for this account, rather than a passing problem. */
+export function isUnavailable(e: unknown): boolean {
+  if (!(e instanceof GoogleError)) return false;
+  if (e.code === "forbidden") return true;
+  return e.code === "server" && /preview|not enabled|not been used|disabled|permission/i.test(e.message);
+}
 
 export interface CalendarEntry {
   id: string;
@@ -225,7 +234,17 @@ async function doSync(db: DB, accountId: string, tz: string): Promise<SyncResult
   } catch (e) {
     const msg = (e as Error).message;
     if (e instanceof GoogleError && e.code === "auth") await markNeedsReconnect(db, accountId, msg);
-    db.prepare("UPDATE connected_accounts SET sync_status = 'error', last_error = ?, last_sync_at = ? WHERE id = ?").run(msg, clockIso(), accountId);
+    const status = isUnavailable(e) ? "unavailable" : "error";
+    if (status === "unavailable") {
+      // Google Calendar can't be used for this account: drop Nikki's copies so calendar links (iCal) are the only
+      // source again and nothing stale or doubled stays on the plan. Your own records are never touched.
+      db.prepare("DELETE FROM meetings WHERE feed_id LIKE ? AND date >= ?").run(`google:${acc.id}:%`, fromDate);
+      db.prepare("DELETE FROM google_events WHERE account_id = ? AND (date IS NULL OR date >= ?)").run(acc.id, fromDate);
+      const { getFeeds, syncFeed } = await import("../calendar.js");
+      for (const f of getFeeds(db)) await syncFeed(db, f.id, tz).catch(() => undefined); // restore any iCal copies
+      for (const d of [today, addDays(today, 1)]) rebuildPlanMeetings(db, d, today);
+    }
+    db.prepare("UPDATE connected_accounts SET sync_status = ?, last_error = ?, last_sync_at = ? WHERE id = ?").run(status, msg, clockIso(), accountId);
     logActivity(db, "system", "google.calendar_sync_failed", accountId, { reason: e instanceof GoogleError ? e.code : "error" }, acc.spaceId);
     return { accountId, ok: false, events: 0, allDay: 0, calendars: 0, error: msg };
   }
@@ -273,7 +292,7 @@ export function syncGoogleStale(db: DB, tz: string) {
   for (const a of usableAccounts(db, "calendar")) {
     const last = a.lastSyncAt ? Date.parse(a.lastSyncAt) : 0;
     const tried = lastAuto.get(a.id) ?? 0;
-    if (Date.now() - Math.max(last, tried) < STALE_MS) continue;
+    if (Date.now() - Math.max(last, tried) < (a.syncStatus === "unavailable" ? UNAVAILABLE_RETRY_MS : STALE_MS)) continue;
     lastAuto.set(a.id, Date.now());
     syncGoogleCalendar(db, a.id, tz).catch(() => undefined);
   }

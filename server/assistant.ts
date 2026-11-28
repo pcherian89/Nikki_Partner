@@ -406,7 +406,8 @@ export async function runTurn(input: TurnInput): Promise<{ message: ChatMessage;
   // Email and calendar look-ups ("show my latest emails", "what's on tomorrow?") are answered by the app itself, with
   // no AI and no cost. Anything else goes to the planner exactly as before. Personal workspace only.
   if (ws === "personal" && input.kind === "chat") {
-    const intent = detectIntent(input.text, localNow(input.timezone).date);
+    const profile = getProfile(db);
+    const intent = detectIntent(input.text, localNow(input.timezone).date, { workStart: profile.workStart || undefined, workEnd: profile.workEnd || undefined });
     if (intent) {
       inFlight.add(ws);
       try {

@@ -374,13 +374,14 @@ export function purgeGoogleData(db: DB, accountId: string, rebuild: (dates: stri
   const dates = (db.prepare("SELECT DISTINCT date FROM meetings WHERE feed_id LIKE ?").all(`google:${accountId}:%`) as { date: string }[]).map((r) => r.date);
   const removedEvents = db.prepare("DELETE FROM meetings WHERE feed_id LIKE ?").run(`google:${accountId}:%`).changes;
   db.prepare("DELETE FROM google_events WHERE account_id = ?").run(accountId);
-  const clearedMessages = clearEmailFromChat(db, (g) => g.accountId === accountId);
+  // A result that mixed several accounts is removed whole, so nothing from this account stays in chat.
+  const clearedMessages = clearEmailFromChat(db, (g) => g.accountId === accountId || (g.accountIds ?? []).includes(accountId) || (g as { items?: { accountId?: string }[] }).items?.some((i) => i.accountId === accountId) === true);
   if (dates.length) rebuild(dates);
   return { removedEvents, clearedMessages };
 }
 
 /** Email results shown in chat keep only headers (sender, subject, date). They are removed on disconnect and after 30 days. */
-export function clearEmailFromChat(db: DB, match: (g: { accountId?: string }, createdAt: string) => boolean): number {
+export function clearEmailFromChat(db: DB, match: (g: { accountId?: string; accountIds?: string[] }, createdAt: string) => boolean): number {
   const rows = db.prepare("SELECT id, meta, created_at FROM messages WHERE meta LIKE '%\"google\"%'").all() as { id: string; meta: string; created_at: string }[];
   let n = 0;
   const upd = db.prepare("UPDATE messages SET meta = ?, text = ? WHERE id = ?");

@@ -158,11 +158,11 @@ function AccountRow({ a, st, busy, call, onReconnect }: { a: Any; st: Any; busy:
       </p>
       {connected && (
         <p className="small muted account-meta">
-          {a.syncStatus === "syncing" || a.syncStatus === "waiting" ? "Reading your calendar…" : a.lastSyncAt ? `Calendar updated ${fmtRecent(a.lastSyncAt)}` : "Calendar not read yet"}
+          {a.syncStatus === "unavailable" ? "Calendar not available from Google yet. Gmail still works, any calendar link you added is still used, and Nikki tries again every 6 hours." : a.syncStatus === "syncing" || a.syncStatus === "waiting" ? "Reading your calendar…" : a.lastSyncAt ? `Calendar updated ${fmtRecent(a.lastSyncAt)}` : "Calendar not read yet"}
           {" · email is fetched when you ask"}
         </p>
       )}
-      {a.lastError && <p className="small warn-text">{a.lastError}</p>}
+      {a.lastError && a.syncStatus !== "unavailable" && <p className="small warn-text">{a.lastError}</p>}
       <div className="row gap wrap account-actions">
         {connected && (
           <button className="btn small" disabled={busy === `sync:${a.id}`} onClick={() => call("POST", `/api/google/accounts/${a.id}/sync`, {}, "Updated from Google.", `sync:${a.id}`)}>

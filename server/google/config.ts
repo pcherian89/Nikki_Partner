@@ -24,7 +24,9 @@ export const SCOPE_GMAIL_READ = "https://www.googleapis.com/auth/gmail.readonly"
 export const SCOPE_CALENDAR_READ = "https://www.googleapis.com/auth/calendar.readonly";
 
 /** Google's endpoints. Overridable only in tests (GOOGLE_TEST_BASE) so tests never reach Google. */
-const testBase = () => (process.env.NODE_ENV === "test" || process.env.NIKKI_TEST === "1" ? process.env.GOOGLE_TEST_BASE : undefined);
+// Never on a hosted deployment (Railway or PUBLIC_DEPLOYMENT), whatever else is set: production only talks to Google.
+const hostedDeployment = () => process.env.PUBLIC_DEPLOYMENT === "true" || !!process.env.RAILWAY_ENVIRONMENT;
+const testBase = () => (!hostedDeployment() && (process.env.NODE_ENV === "test" || process.env.NIKKI_TEST === "1") ? process.env.GOOGLE_TEST_BASE : undefined);
 export const endpoints = () => {
   const t = testBase();
   return {

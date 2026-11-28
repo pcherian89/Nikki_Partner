@@ -88,7 +88,8 @@ export function GoogleCard({ g, tz, actions }: { g: Any; tz: string; actions: Ap
         )}
         {g.planBlocks?.length > 0 && <p className="small muted">Also in your plan: {g.planBlocks.slice(0, 4).map((b: Any) => `${h12(b.start)} ${b.title}`).join(", ")}{g.planBlocks.length > 4 ? "…" : ""}</p>}
         <p className="g-source small muted">
-          {g.source} · Google Calendar updated {ago(g.lastSyncAt)}
+          {g.source}
+          {(g.sources ?? []).map((s: Any) => ` · ${s.label}${s.ok ? `, updated ${ago(s.updatedAt)}` : ", not available"}`).join("")}
         </p>
       </div>
     );

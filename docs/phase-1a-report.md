@@ -71,13 +71,41 @@ undone) come from earlier research and weren't on the pages re-read today.
 
 | Kind | Status |
 |---|---|
-| Automated (171, incl. 15 new for 1A) | ✓ all pass |
-| Mocked Google (fake OAuth + MCP, SSE and JSON replies) | ✓ connect, wrong account, managed account, expired, cancelled, reused state, refresh failure, reconnect, disconnect, read-only allowlist, chat answers, calendar conversion, iCal dedupe |
+| Automated (176, incl. 20 for 1A) | ✓ all pass |
+| Mocked Google (fake OAuth + MCP, SSE and JSON replies) | ✓ connect, wrong account, managed account, expired, cancelled, reused state, refresh failure, reconnect, disconnect, read-only allowlist, chat answers, calendar conversion, iCal dedupe, your eight example questions, Calendar unavailable (calendar link kept, Gmail unaffected), two accounts kept separate, agents have no Google tools, test address refused on Railway |
 | Screens on phone, tablet, laptop (fake data) | ✓ screenshots |
 | Real Google provider | ✗ not yet (needs your Google Cloud setup) |
 | Real account (your Gmail) | ✗ not yet. Gmail features are not claimed to work until tested with your account |
 | Real iPhone ("sign in again" notification) | ✗ not yet |
 | Phase 0 leftover: reminder notification opens Today | ✗ still to test on your iPhone |
+
+### Final verification before deployment (28 Nov)
+
+| Check | Result |
+|---|---|
+| Upgrade rehearsal: live Phase 0 code (d81db30) creates data, Stage 1A code opens it | v7 → v8; 3 new tables, 10 new columns; every existing row and column unchanged; pre-upgrade copy saved automatically |
+| Encrypted backup + restore check | backup written, in-app restore check passed (36 tables) |
+| Off-device restore (`scripts/restore-backup.ts`, documented in operations.md §3) | restored file passes `integrity_check`, tasks and meetings present; a wrong key is refused and writes nothing |
+| Test data | the fake Google exists only in `server/tests`; `GOOGLE_TEST_BASE` is ignored on any Railway/hosted deployment (tested); no sample accounts, emails or events in production code |
+| Read-only | only the 9 read tools can be called (checked in code before any request); scopes gmail.readonly + calendar.readonly; nothing sends, replies, archives, deletes, labels, marks read or edits events |
+| Agents | no Google tools registered, no agent code imports Google code, every account has agent access "none" |
+
+### How questions are answered
+
+Eight example questions are understood without exact commands, in code (no AI cost): "Show me my emails", "Have I
+received anything new today?", "Find the latest email from this person" (Nikki asks who you mean instead of guessing),
+"Did I receive anything about the proposal?", "What's happening today?", "When is my next meeting?", "Am I free
+tomorrow afternoon?", "What information can you access?". Each answer says it was looked up directly (no AI), shows
+the Gmail search it used, its sources with how fresh they are, and any source that couldn't be read. Anything else
+(planning, "reply to…", "remind me…") goes to the planner as before. Calendar questions are answered this way only
+once a Google account is connected, so nothing changes before then.
+
+### If Google Calendar isn't available
+
+If Google refuses Calendar access (for example while it is in Developer Preview), the account shows "Calendar not
+available", Nikki retries every 6 hours, Gmail keeps working, Nikki's Google copies are cleared so your calendar link
+(iCal) is the only source again, and answers say so. When Google Calendar works, its events replace the calendar-link
+copies, never both. Tags show "Google Calendar" or "Calendar link".
 
 ## 6. Costs
 
